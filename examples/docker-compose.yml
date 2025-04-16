@@ -1,0 +1,11 @@
+services:
+  # http://rabbit.stream.local:15672/#/queues
+  rabbit.stream.local:
+    image: rabbitmq:3.11-management-alpine
+    container_name: rabbit.stream.local
+    environment:
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: -rabbitmq_stream advertised_host "rabbit.stream.local" -rabbit loopback_users "none"
+
+  redis.stream.local:
+    image: redis:7.0.0
+    container_name: redis.stream.local

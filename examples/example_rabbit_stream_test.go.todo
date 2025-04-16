@@ -1,0 +1,45 @@
+package stream2
+
+import (
+	"fmt"
+	"log"
+	"testing"
+	"time"
+
+	"github.com/rabbitmq/rabbitmq-stream-go-client/pkg/amqp"
+	"github.com/rabbitmq/rabbitmq-stream-go-client/pkg/stream"
+)
+
+// rabbitmq_stream
+// dcm exec rabbit rabbitmq-plugins enable rabbitmq_stream_management
+
+func Test_Rabbit_Stream(t *testing.T) {
+	senv, err := stream.NewEnvironment(stream.NewEnvironmentOptions().
+		SetUri("rabbitmq-stream://guest:guest@rabbit.stream.local:5552/"),
+	)
+	if err != nil {
+		log.Fatal("stream.NewEnvironment", err)
+	}
+
+	streamOptions := stream.NewStreamOptions().
+		SetMaxAge(time.Minute).
+		SetMaxSegmentSizeBytes((stream.ByteCapacity{}).B(1024 * 10))
+	if err := senv.DeclareStream("test", streamOptions); err != nil {
+		log.Fatal("stream.DeclareStream", err)
+	}
+
+	consumer, err := senv.NewConsumer("test", func(ctx stream.ConsumerContext, msg *amqp.Message) {
+
+		fmt.Println(msg)
+
+	}, stream.NewConsumerOptions().SetInitialCredits()
+		SetCRCCheck(false),
+	)
+	if err != nil {
+		log.Fatal("NewConsumer", err)
+	}
+
+	fmt.Println(consumer.GetOffset())
+
+	time.Sleep(time.Hour)
+}
