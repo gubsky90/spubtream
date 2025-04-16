@@ -1,10 +1,15 @@
 package spubtream
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"sort"
 )
+
+type Receiver[T Message] interface {
+	Receive(ctx context.Context, message T) error
+}
 
 type Subscription[T Message] struct {
 	tags     []string
@@ -15,6 +20,12 @@ type Subscription[T Message] struct {
 
 type Position struct {
 	pos int
+}
+
+type ReceiverFunc[T Message] func(ctx context.Context, message T) error
+
+func (fn ReceiverFunc[T]) Receive(ctx context.Context, message T) error {
+	return fn(ctx, message)
 }
 
 func (s *Stream[T]) Sub(receiver Receiver[T], pos Position, tags []string) *Subscription[T] {

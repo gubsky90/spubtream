@@ -1,8 +1,10 @@
 package spubtream
 
 import (
+	"context"
 	"log/slog"
 	"slices"
+	"sort"
 	"sync"
 )
 
@@ -16,49 +18,20 @@ type Message interface {
 	MessageTags() []string
 }
 
-type Receiver[T Message] interface {
-	Receive(T) error
-}
-
 type Stream[T Message] struct {
-	mx           sync.Mutex
-	wg           sync.WaitGroup
-	workers      int
-	workersLimit int
-	offset       int
-	messages     []T
-	tags         map[string][]int
-	subTags      [512][]*Subscription[T]
-	readyq       []*Subscription[T]
-}
+	ctx context.Context
+	mx  sync.Mutex
 
-func (s *Stream[T]) Pub(msg T) {
-	tags := msg.MessageTags()
-	//if len(tags) == 0 {
-	//	return
-	//}
+	wg              sync.WaitGroup
+	workers         int
+	workersLimit    int
+	waitForLaggards bool
 
-	s.mx.Lock()
-	defer s.mx.Unlock()
-
-	msgID := s.offset + len(s.messages)
-	s.messages = append(s.messages, msg)
-
-	for _, tag := range tags {
-		s.tags[tag] = append(s.tags[tag], msgID)
-
-		shard := s.shard(tag)
-		for _, sub := range s.subTags[shard] {
-			if sub.status != Idle {
-				continue
-			}
-			if !slices.Contains(sub.tags, tag) {
-				continue
-			}
-			sub.pos = msgID
-			s.ready(sub)
-		}
-	}
+	offset   int
+	messages []T
+	tags     map[string][]int
+	subTags  [512][]*Subscription[T]
+	readyq   []*Subscription[T]
 }
 
 func (s *Stream[T]) shard(tag string) int {
@@ -81,7 +54,8 @@ func (s *Stream[T]) worker() {
 		message := s.messages[sub.pos-s.offset]
 		s.mx.Unlock()
 
-		err := sub.receiver.Receive(message)
+		// TODO: handle panic
+		err := sub.receiver.Receive(s.ctx, message)
 
 		s.mx.Lock()
 		if err != nil {
@@ -114,7 +88,6 @@ func (s *Stream[T]) enqSub(sub *Subscription[T]) {
 func (s *Stream[T]) ready(sub *Subscription[T]) {
 	sub.status = Ready
 	s.readyq = append(s.readyq, sub)
-
 	if s.workers < s.workersLimit {
 		s.workers++
 		s.wg.Add(1)
@@ -139,16 +112,21 @@ func (s *Stream[T]) gc(fn func(messages []T) int) {
 		return
 	}
 
-	lastSubN := s.offset + len(s.messages)
-	for _, st := range s.subTags {
-		for _, sub := range st {
-			if sub.status != Idle && sub.pos < lastSubN {
-				lastSubN = sub.pos
+	usage := 0
+	if s.waitForLaggards {
+		lastSubN := s.offset + len(s.messages)
+		for _, st := range s.subTags {
+			for _, sub := range st {
+				if sub.status != Idle && sub.pos < lastSubN {
+					lastSubN = sub.pos
+				}
 			}
 		}
+		usage = lastSubN - s.offset
 	}
 
-	n := min(len(s.messages), max(0, fn(s.messages)))
+	n := min(len(s.messages), max(usage, fn(s.messages)))
+
 	for i, msg := range s.messages[:n] {
 		msgID := s.offset + i
 		for _, tag := range msg.MessageTags() {
@@ -162,9 +140,18 @@ func (s *Stream[T]) gc(fn func(messages []T) int) {
 	s.offset += n
 }
 
-func NewStream[T Message]() *Stream[T] {
-	return &Stream[T]{
-		tags:         map[string][]int{},
-		workersLimit: 128,
+func simpleHash(str string) (sum uint32) {
+	for i := 0; i < len(str); i++ {
+		sum ^= uint32(str[i])
+		sum *= 0x01000193
 	}
+	return
+}
+
+func searchPos(pos, head int, items []int) int {
+	n := sort.Search(len(items), func(i int) bool { return items[i] > pos })
+	if n < len(items) && items[n] < head {
+		return items[n]
+	}
+	return head
 }

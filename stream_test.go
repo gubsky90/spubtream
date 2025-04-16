@@ -1,6 +1,7 @@
 package spubtream
 
 import (
+	"context"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -26,7 +27,7 @@ type TestClient struct {
 	Delay time.Duration
 }
 
-func (c *TestClient) Receive(msg *TestMessage) error {
+func (c *TestClient) Receive(_ context.Context, msg *TestMessage) error {
 	fmt.Printf("[Receive][%d] %v\n", c.ID, msg)
 	atomic.AddInt64(&receiveCount, 1)
 	if c.Delay != 0 {
@@ -37,7 +38,7 @@ func (c *TestClient) Receive(msg *TestMessage) error {
 }
 
 func TestName(t *testing.T) {
-	s := NewStream[*TestMessage]()
+	s := New[*TestMessage](context.Background()).Stream()
 
 	fmt.Println("sub start")
 	for i := 0; i < 100000; i++ {
@@ -62,7 +63,7 @@ func TestName(t *testing.T) {
 }
 
 func Test_Example(t *testing.T) {
-	s := NewStream[*TestMessage]()
+	s := New[*TestMessage](context.Background()).Stream()
 
 	s.Sub(&TestClient{ID: 1}, s.Newest(), []string{"one"})
 	s.Sub(&TestClient{ID: 2}, s.Newest(), []string{"two", "all"})
@@ -76,7 +77,7 @@ func Test_Example(t *testing.T) {
 }
 
 func Test_Stream_SubAfter(t *testing.T) {
-	stream := NewStream[*TestMessage]()
+	stream := New[*TestMessage](context.Background()).Stream()
 
 	pos := stream.Newest()
 	fmt.Println(pos)
@@ -110,7 +111,7 @@ func Test_SizeOf(t *testing.T) {
 }
 
 func Test_Stream_gc(t *testing.T) {
-	stream := NewStream[*TestMessage]()
+	stream := New[*TestMessage](context.Background()).Stream()
 	stream.offset = 10
 
 	stream.Sub(&TestClient{
@@ -143,21 +144,8 @@ func Test_Stream_gc(t *testing.T) {
 	//})
 }
 
-func Test_Stream_nextPos(t *testing.T) {
-	stream := NewStream[*TestMessage]().
-		WithLimit(2)
-
-	stream.offset = 10
-
-	stream.Pub(&TestMessage{ID: 1, Tags: []string{"one"}})
-	stream.Pub(&TestMessage{ID: 2, Tags: []string{"one"}})
-	stream.Pub(&TestMessage{ID: 3, Tags: []string{"one"}})
-
-	fmt.Println(stream.nextPos([]string{"one"}, 3))
-}
-
 func Benchmark_nextPos(b *testing.B) {
-	s := NewStream[*TestMessage]()
+	s := New[*TestMessage](context.Background()).Stream()
 	for i := 0; i < 100000; i++ {
 		if i%20000 == 0 {
 			s.Pub(&TestMessage{Tags: []string{"one", "two"}})

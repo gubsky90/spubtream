@@ -54,8 +54,8 @@ func Test_Redis(t *testing.T) {
 
 	// 1744728122852-0
 
-	stream := spubtream.NewStream[*RedisMessage]()
-	stream.Sub(spubtream.ReceiverFunc[*RedisMessage](func(msg *RedisMessage) error {
+	stream := spubtream.New[*RedisMessage](ctx).Stream()
+	stream.Sub(spubtream.ReceiverFunc[*RedisMessage](func(_ context.Context, msg *RedisMessage) error {
 		fmt.Println(">>>", string(msg.Payload))
 		return nil
 	}), stream.Newest(), []string{"one"})

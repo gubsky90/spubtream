@@ -2,6 +2,7 @@ package examples
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -25,7 +26,7 @@ type TCPClient struct {
 	stream *spubtream.Stream[*TCPMessage]
 }
 
-func (c *TCPClient) Receive(msg *TCPMessage) error {
+func (c *TCPClient) Receive(_ context.Context, msg *TCPMessage) error {
 	return json.NewEncoder(c.conn).Encode(msg)
 }
 
@@ -57,7 +58,7 @@ func Test_Example_TCP(t *testing.T) {
 	}
 	defer l.Close()
 
-	stream := spubtream.NewStream[*TCPMessage]()
+	stream := spubtream.New[*TCPMessage](context.Background()).Stream()
 
 	go func() {
 		for {

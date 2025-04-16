@@ -1,6 +1,7 @@
 package examples
 
 import (
+	"context"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -37,7 +38,7 @@ func Test_AMQP(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	stream := spubtream.NewStream[*AMQPMessage]()
+	stream := spubtream.New[*AMQPMessage](context.Background()).Stream()
 
 	var received int64
 	go func() {
@@ -48,7 +49,7 @@ func Test_AMQP(t *testing.T) {
 	}()
 
 	for i := 0; i < 1000000; i++ {
-		stream.Sub(spubtream.ReceiverFunc[*AMQPMessage](func(msg *AMQPMessage) error {
+		stream.Sub(spubtream.ReceiverFunc[*AMQPMessage](func(_ context.Context, msg *AMQPMessage) error {
 			atomic.AddInt64(&received, 1)
 			return nil
 		}), stream.Newest(), []string{

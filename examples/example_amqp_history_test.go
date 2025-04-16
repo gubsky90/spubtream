@@ -1,6 +1,7 @@
 package examples
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -39,7 +40,7 @@ func Test_AMQP_History(t *testing.T) {
 	url := "amqp://guest:guest@rabbit.stream.local:5672/"
 	queue := "test"
 
-	stream := spubtream.NewStream[*AMQPMessage]()
+	stream := spubtream.New[*AMQPMessage](context.Background()).Stream()
 
 	var lastOffset int64
 	if err := initStream(url, queue, func(offset int64, d amqp.Delivery) {
@@ -65,7 +66,7 @@ func Test_AMQP_History(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		stream.Sub(spubtream.ReceiverFunc[*AMQPMessage](func(msg *AMQPMessage) error {
+		stream.Sub(spubtream.ReceiverFunc[*AMQPMessage](func(_ context.Context, msg *AMQPMessage) error {
 			fmt.Printf(">>>%#v\n", msg)
 			return nil
 		}), pos, []string{"one"})
