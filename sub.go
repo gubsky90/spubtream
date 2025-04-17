@@ -7,6 +7,11 @@ import (
 	"sort"
 )
 
+const (
+	Idle  = 0
+	Ready = 1
+)
+
 type Receiver[T Message] interface {
 	Receive(ctx context.Context, message T) error
 }
@@ -28,7 +33,11 @@ func (fn ReceiverFunc[T]) Receive(ctx context.Context, message T) error {
 	return fn(ctx, message)
 }
 
-func (s *Stream[T]) Sub(receiver Receiver[T], pos Position, tags []string) *Subscription[T] {
+func (s *Stream[T]) SubFunc(receiver ReceiverFunc[T], pos Position, tags ...string) *Subscription[T] {
+	return s.Sub(receiver, pos, tags...)
+}
+
+func (s *Stream[T]) Sub(receiver Receiver[T], pos Position, tags ...string) *Subscription[T] {
 	sub := &Subscription[T]{
 		tags:     tags,
 		receiver: receiver,
@@ -69,8 +78,14 @@ func (s *Stream[T]) ReSub(sub *Subscription[T], add, remove []string) {
 			return item == sub
 		})
 	}
+}
 
-	// s.enqSub(sub) // ??? maybe only if new tag add
+func (s *Stream[T]) UnSub(sub *Subscription[T]) {
+	s.mx.Lock()
+	defer s.mx.Unlock()
+
+	s.deleteSub(sub)
+	sub.tags = nil
 }
 
 func (s *Stream[T]) Newest() Position {

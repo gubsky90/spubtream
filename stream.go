@@ -8,21 +8,16 @@ import (
 	"sync"
 )
 
-const (
-	Idle    = 0
-	Ready   = 1
-	Process = 2
-)
-
 type Message interface {
 	MessageTags() []string
 }
 
 type Stream[T Message] struct {
-	ctx context.Context
-	mx  sync.Mutex
+	ctx      context.Context
+	mx       sync.Mutex
+	commonWG sync.WaitGroup
 
-	wg              sync.WaitGroup
+	workersWG       sync.WaitGroup
 	workers         int
 	workersLimit    int
 	waitForLaggards bool
@@ -32,6 +27,10 @@ type Stream[T Message] struct {
 	tags     map[string][]int
 	subTags  [512][]*Subscription[T]
 	readyq   []*Subscription[T]
+}
+
+func (s *Stream[T]) WaitWorkers() {
+	s.workersWG.Wait()
 }
 
 func (s *Stream[T]) shard(tag string) int {
@@ -44,34 +43,50 @@ func (s *Stream[T]) worker() {
 		if len(s.readyq) == 0 {
 			s.workers--
 			s.mx.Unlock()
-			s.wg.Done()
+			s.workersWG.Done()
 			return
 		}
 
 		sub := s.readyq[0]
 		s.readyq = s.readyq[1:]
-		sub.status = Process
+		if len(sub.tags) == 0 { // unsubscribed
+			continue
+		}
+
 		message := s.messages[sub.pos-s.offset]
 		s.mx.Unlock()
 
 		// TODO: handle panic
 		err := sub.receiver.Receive(s.ctx, message)
+		if err != nil {
+			s.handleReceiverError(sub, err)
+		}
 
 		s.mx.Lock()
 		if err != nil {
-			slog.Warn("subscriber failed", "err", err)
-
-			//for _, tag := range sub.tags {
-			//	shard := s.shard(tag)
-			//	tagSubs := s.subTags[shard]
-			//	n := slices.Index(tagSubs, sub)
-			//	tagSubs[n] = tagSubs[len(tagSubs)-1]
-			//	tagSubs = tagSubs[:len(tagSubs)-1]
-			//	s.subTags[shard] = tagSubs
-			//}
+			s.deleteSub(sub)
 		} else {
 			s.enqSub(sub)
 		}
+	}
+}
+
+func (s *Stream[T]) handleReceiverError(sub *Subscription[T], err error) {
+	//if fn, ok := sub.receiver.(interface{Some()}); ok {
+	//	go fn.Some()
+	//}
+
+	slog.Warn("subscriber failed", "receiver", sub.receiver, "tags", sub.tags, "err", err)
+}
+
+func (s *Stream[T]) deleteSub(sub *Subscription[T]) {
+	for _, tag := range sub.tags {
+		shard := s.shard(tag)
+		tagSubs := s.subTags[shard]
+		n := slices.Index(tagSubs, sub)
+		tagSubs[n] = tagSubs[len(tagSubs)-1]
+		tagSubs = tagSubs[:len(tagSubs)-1]
+		s.subTags[shard] = tagSubs
 	}
 }
 
@@ -90,7 +105,7 @@ func (s *Stream[T]) ready(sub *Subscription[T]) {
 	s.readyq = append(s.readyq, sub)
 	if s.workers < s.workersLimit {
 		s.workers++
-		s.wg.Add(1)
+		s.workersWG.Add(1)
 		go s.worker()
 	}
 }
@@ -125,8 +140,7 @@ func (s *Stream[T]) gc(fn func(messages []T) int) {
 		usage = lastSubN - s.offset
 	}
 
-	n := min(len(s.messages), max(usage, fn(s.messages)))
-
+	n := min(len(s.messages), min(usage, fn(s.messages)))
 	for i, msg := range s.messages[:n] {
 		msgID := s.offset + i
 		for _, tag := range msg.MessageTags() {
@@ -138,6 +152,15 @@ func (s *Stream[T]) gc(fn func(messages []T) int) {
 
 	s.messages = append(s.messages[:0], s.messages[n:]...)
 	s.offset += n
+
+	//slog.Info("[GC]",
+	//	"messages", len(s.messages),
+	//	"cap", cap(s.messages),
+	//	"offset", s.offset,
+	//	"n", n,
+	//	"usage", usage,
+	//	"waitForLaggards", s.waitForLaggards,
+	//)
 }
 
 func simpleHash(str string) (sum uint32) {

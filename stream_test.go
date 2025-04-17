@@ -2,14 +2,12 @@ package spubtream
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
-	"unsafe"
 )
-
-var receiveCount int64
 
 type TestMessage struct {
 	ID      int
@@ -22,126 +20,111 @@ func (t *TestMessage) MessageTags() []string {
 	return t.Tags
 }
 
-type TestClient struct {
-	ID    int
-	Delay time.Duration
-}
+func Test_Stream_Stress(t *testing.T) {
+	stream := New[*TestMessage](context.Background()).
+		WithGCInterval(time.Millisecond * 5000).
+		WithWorkersLimit(256).
+		Stream()
 
-func (c *TestClient) Receive(_ context.Context, msg *TestMessage) error {
-	fmt.Printf("[Receive][%d] %v\n", c.ID, msg)
-	atomic.AddInt64(&receiveCount, 1)
-	if c.Delay != 0 {
-		time.Sleep(c.Delay)
+	var received int64
+
+	ts := time.Now()
+	for i := 0; i < 1000000; i++ {
+		stream.SubFunc(func(_ context.Context, msg *TestMessage) error {
+			atomic.AddInt64(&received, 1)
+			// time.Sleep(time.Duration(rand.Intn(10)) * time.Millisecond)
+			return nil
+		}, stream.Newest(),
+			"all",
+			fmt.Sprintf("role#%d", i%10),
+			fmt.Sprintf("user#%d", i%100000),
+		)
 	}
+	fmt.Println("Sub done", time.Since(ts))
 
-	return nil
-}
-
-func TestName(t *testing.T) {
-	s := New[*TestMessage](context.Background()).Stream()
-
-	fmt.Println("sub start")
+	var tags []string
+	//tags = append(tags, "all")
+	//for i := 0; i < 10; i++ {
+	//	tags = append(tags, fmt.Sprintf("role#%d", i))
+	//}
 	for i := 0; i < 100000; i++ {
-		s.Sub(&TestClient{ID: i}, s.Newest(), []string{fmt.Sprintf("tag#%d", i%100000), "all"})
+		tags = append(tags, fmt.Sprintf("user#%d", i))
 	}
-	fmt.Println("sub done")
 
-	time.Sleep(time.Second)
+	var pubs int64
+	go func() {
+		for {
+			stream.Pub(&TestMessage{Tags: []string{tags[int(atomic.AddInt64(&pubs, 1))%len(tags)]}})
+		}
+	}()
 
 	for {
-		s.Pub(&TestMessage{Tags: []string{"tag#1"}})
-		s.Pub(&TestMessage{Tags: []string{"tag#2"}})
-		s.Pub(&TestMessage{Tags: []string{"tag#3"}})
-
-		// start := time.Now()
-		s.wg.Wait()
-		// fmt.Println("Done", receiveCount, time.Since(start))
-		receiveCount = 0
-		time.Sleep(time.Millisecond * 10)
-	}
-
-}
-
-func Test_Example(t *testing.T) {
-	s := New[*TestMessage](context.Background()).Stream()
-
-	s.Sub(&TestClient{ID: 1}, s.Newest(), []string{"one"})
-	s.Sub(&TestClient{ID: 2}, s.Newest(), []string{"two", "all"})
-
-	s.Pub(&TestMessage{Tags: []string{"one", "all"}})
-	s.Pub(&TestMessage{Tags: []string{"one"}})
-
-	s.wg.Wait()
-
-	fmt.Println(receiveCount)
-}
-
-func Test_Stream_SubAfter(t *testing.T) {
-	stream := New[*TestMessage](context.Background()).Stream()
-
-	pos := stream.Newest()
-	fmt.Println(pos)
-
-	stream.Pub(&TestMessage{ID: 1})
-	stream.Pub(&TestMessage{ID: 2})
-	stream.Pub(&TestMessage{ID: 3})
-	stream.Pub(&TestMessage{ID: 4})
-	stream.Pub(&TestMessage{ID: 5})
-
-	pos, err := stream.After(func(msg *TestMessage) int {
-		return msg.ID - 0
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	stream.Sub(&TestClient{}, pos, nil)
-}
-
-func Test_SizeOf(t *testing.T) {
-
-	type Subscription[T Message] struct {
-		receiver Receiver[T]
-		tags     []string
-		pos      int32
-		status   uint8
-	}
-
-	fmt.Println(unsafe.Sizeof(Subscription[*TestMessage]{}))
-}
-
-func Test_Stream_gc(t *testing.T) {
-	stream := New[*TestMessage](context.Background()).Stream()
-	stream.offset = 10
-
-	stream.Sub(&TestClient{
-		ID:    1,
-		Delay: time.Millisecond,
-	}, stream.Newest(), []string{"one"})
-
-	stream.Sub(&TestClient{
-		ID:    2,
-		Delay: time.Second * 2,
-	}, stream.Newest(), []string{"one"})
-
-	stream.Sub(&TestClient{
-		ID:    3,
-		Delay: time.Millisecond,
-	}, stream.Newest(), []string{"two"})
-
-	for i := 0; i < 5; i++ {
-		stream.Pub(&TestMessage{ID: i + 1, Tags: []string{"one"}})
 		time.Sleep(time.Second)
+		fmt.Println("pubs", atomic.SwapInt64(&pubs, 0), "received", atomic.SwapInt64(&received, 0))
 	}
+}
 
-	time.Sleep(time.Hour)
-	// last 3s
-	//stream.gc(func(messages []*TestMessage) int {
-	//	now := time.Now()
-	//	return sort.Search(len(messages), func(i int) bool {
-	//		return int((3*time.Second)-now.Sub(messages[i].Time)) >= 0
-	//	})
-	//})
+func Test_Stream_ReceiveError(t *testing.T) {
+	stream := New[*TestMessage](context.Background()).Stream()
+
+	var receiveCalls int
+	stream.SubFunc(func(_ context.Context, msg *TestMessage) error {
+		receiveCalls++
+		return errors.New("test")
+	}, stream.Newest(), "first")
+
+	stream.Pub(&TestMessage{Tags: []string{"first"}})
+	stream.WaitWorkers()
+
+	stream.Pub(&TestMessage{Tags: []string{"first"}})
+
+	assertEq(t, receiveCalls, 1)
+}
+
+func Test_Stream_ReSub(t *testing.T) {
+	stream := New[*TestMessage](context.Background()).Stream()
+
+	var received []int
+	sub := stream.SubFunc(func(_ context.Context, msg *TestMessage) error {
+		received = append(received, msg.ID)
+		return nil
+	}, stream.Newest(), "first")
+
+	stream.Pub(&TestMessage{ID: 1, Tags: []string{"first"}})
+	stream.Pub(&TestMessage{ID: 2, Tags: []string{"second"}})
+	stream.WaitWorkers()
+
+	stream.ReSub(sub, []string{"second"}, []string{"first"})
+
+	stream.Pub(&TestMessage{ID: 3, Tags: []string{"first"}})
+	stream.Pub(&TestMessage{ID: 4, Tags: []string{"second"}})
+	stream.WaitWorkers()
+
+	assertEq(t, received, []int{1, 4})
+}
+
+func Test_Stream_UnSub(t *testing.T) {
+	stream := New[*TestMessage](context.Background()).Stream()
+
+	var received []int
+	sub := stream.SubFunc(func(_ context.Context, msg *TestMessage) error {
+		received = append(received, msg.ID)
+		return nil
+	}, stream.Newest(), "first", "second")
+
+	stream.Pub(&TestMessage{ID: 1, Tags: []string{"first"}})
+	stream.Pub(&TestMessage{ID: 2, Tags: []string{"second"}})
+	stream.WaitWorkers()
+
+	assertEq(t, received, []int{1, 2})
+	received = nil
+	stream.UnSub(sub)
+
+	stream.Pub(&TestMessage{ID: 3, Tags: []string{"first"}})
+	stream.Pub(&TestMessage{ID: 4, Tags: []string{"second"}})
+	stream.WaitWorkers()
+
+	assertEq(t, received, []int{})
 }
 
 func Benchmark_nextPos(b *testing.B) {
@@ -160,5 +143,11 @@ func Benchmark_nextPos(b *testing.B) {
 		for pos < len(s.messages) {
 			pos, _ = s.nextPos([]string{"two"}, pos)
 		}
+	}
+}
+
+func assertEq(t *testing.T, act, exp any) {
+	if sact, sexp := fmt.Sprint(act), fmt.Sprint(exp); sact != sexp {
+		t.Fatalf("act: %s; exp: %s", sact, sexp)
 	}
 }

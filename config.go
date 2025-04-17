@@ -39,12 +39,17 @@ func (cfg *Config[T]) WithLimit(limit int) *Config[T] {
 	return cfg
 }
 
+func (cfg *Config[T]) WithGCInterval(interval time.Duration) *Config[T] {
+	cfg.gcInterval = interval
+	return cfg
+}
+
 func (cfg *Config[T]) Stream() *Stream[T] {
 	stream := cfg.stream
 	if cfg.gcFunc != nil {
-		stream.wg.Add(1)
+		stream.commonWG.Add(1)
 		go func() {
-			defer stream.wg.Done()
+			defer stream.commonWG.Done()
 			for {
 				time.Sleep(cfg.gcInterval)
 				stream.gc(cfg.gcFunc)
