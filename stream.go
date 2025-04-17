@@ -25,8 +25,10 @@ type Stream[T Message] struct {
 	offset   int
 	messages []T
 	tags     map[string][]int
-	subTags  [512][]*Subscription[T]
-	readyq   []*Subscription[T]
+	idleSubs [512][]*Subscription[T]
+
+	readyq    []*Subscription[T]
+	inProcess map[*Subscription[T]]struct{}
 }
 
 func (s *Stream[T]) WaitWorkers() {
@@ -34,7 +36,7 @@ func (s *Stream[T]) WaitWorkers() {
 }
 
 func (s *Stream[T]) shard(tag string) int {
-	return int(simpleHash(tag)) % len(s.subTags)
+	return int(simpleHash(tag)) % len(s.idleSubs)
 }
 
 func (s *Stream[T]) worker() {
@@ -49,10 +51,16 @@ func (s *Stream[T]) worker() {
 
 		sub := s.readyq[0]
 		s.readyq = s.readyq[1:]
+
 		if len(sub.tags) == 0 { // unsubscribed
 			continue
 		}
 
+		//if sub.pos-s.offset < 0 {
+		//	handle laggard
+		//}
+
+		s.inProcess[sub] = struct{}{}
 		message := s.messages[sub.pos-s.offset]
 		s.mx.Unlock()
 
@@ -63,9 +71,8 @@ func (s *Stream[T]) worker() {
 		}
 
 		s.mx.Lock()
-		if err != nil {
-			s.deleteSub(sub)
-		} else {
+		delete(s.inProcess, sub)
+		if err == nil {
 			s.enqSub(sub)
 		}
 	}
@@ -79,34 +86,46 @@ func (s *Stream[T]) handleReceiverError(sub *Subscription[T], err error) {
 	slog.Warn("subscriber failed", "receiver", sub.receiver, "tags", sub.tags, "err", err)
 }
 
-func (s *Stream[T]) deleteSub(sub *Subscription[T]) {
-	for _, tag := range sub.tags {
-		shard := s.shard(tag)
-		tagSubs := s.subTags[shard]
-		n := slices.Index(tagSubs, sub)
-		tagSubs[n] = tagSubs[len(tagSubs)-1]
-		tagSubs = tagSubs[:len(tagSubs)-1]
-		s.subTags[shard] = tagSubs
-	}
-}
-
-func (s *Stream[T]) enqSub(sub *Subscription[T]) {
-	pos, end := s.nextPos(sub.tags, sub.pos)
-	sub.pos = pos
-	if end {
-		sub.status = Idle
-	} else {
-		s.ready(sub)
-	}
-}
-
-func (s *Stream[T]) ready(sub *Subscription[T]) {
+func (s *Stream[T]) enqReady(sub *Subscription[T]) {
 	sub.status = Ready
 	s.readyq = append(s.readyq, sub)
 	if s.workers < s.workersLimit {
 		s.workers++
 		s.workersWG.Add(1)
 		go s.worker()
+	}
+}
+
+func (s *Stream[T]) enqSub(sub *Subscription[T]) {
+	pos, end := s.nextPos(sub.tags, sub.pos)
+	if end {
+		s.idle(sub)
+	} else {
+		sub.pos = pos
+		s.ready(sub)
+	}
+}
+
+func (s *Stream[T]) idle(sub *Subscription[T]) {
+	if sub.status == Idle {
+		panic("unexpected")
+	}
+	for _, tag := range sub.tags {
+		shard := s.shard(tag)
+		s.idleSubs[shard] = append(s.idleSubs[shard], sub)
+		//if !slices.Contains(s.idleSubs[shard], sub) {
+		//	s.idleSubs[shard] = append(s.idleSubs[shard], sub)
+		//}
+	}
+	sub.status = Idle
+}
+
+func (s *Stream[T]) ready(sub *Subscription[T]) {
+	if sub.status == Idle {
+		panic("unexpected")
+	}
+	if sub.status == Unknown {
+		s.enqReady(sub)
 	}
 }
 
@@ -130,11 +149,14 @@ func (s *Stream[T]) gc(fn func(messages []T) int) {
 	usage := 0
 	if s.waitForLaggards {
 		lastSubN := s.offset + len(s.messages)
-		for _, st := range s.subTags {
-			for _, sub := range st {
-				if sub.status != Idle && sub.pos < lastSubN {
-					lastSubN = sub.pos
-				}
+		for _, sub := range s.readyq {
+			if sub.pos < lastSubN {
+				lastSubN = sub.pos
+			}
+		}
+		for sub := range s.inProcess {
+			if sub.pos < lastSubN {
+				lastSubN = sub.pos
 			}
 		}
 		usage = lastSubN - s.offset

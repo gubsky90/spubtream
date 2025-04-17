@@ -3,13 +3,13 @@ package spubtream
 import (
 	"context"
 	"errors"
-	"slices"
 	"sort"
 )
 
 const (
-	Idle  = 0
-	Ready = 1
+	Unknown = 0
+	Idle    = 1
+	Ready   = 2
 )
 
 type Receiver[T Message] interface {
@@ -42,16 +42,12 @@ func (s *Stream[T]) Sub(receiver Receiver[T], pos Position, tags ...string) *Sub
 		tags:     tags,
 		receiver: receiver,
 		pos:      pos.pos,
-		status:   Idle,
+		status:   Unknown,
 	}
 
 	if len(tags) > 0 {
 		s.mx.Lock()
 		defer s.mx.Unlock()
-		for _, tag := range tags {
-			shard := s.shard(tag)
-			s.subTags[shard] = append(s.subTags[shard], sub)
-		}
 		s.enqSub(sub)
 	}
 
@@ -59,40 +55,42 @@ func (s *Stream[T]) Sub(receiver Receiver[T], pos Position, tags ...string) *Sub
 }
 
 func (s *Stream[T]) ReSub(sub *Subscription[T], add, remove []string) {
-	s.mx.Lock()
-	defer s.mx.Unlock()
-
-	for _, tag := range add {
-		sub.tags = append(sub.tags, tag)
-		shard := s.shard(tag)
-		s.subTags[shard] = append(s.subTags[shard], sub)
-	}
-
-	for _, tag := range remove {
-		sub.tags = slices.DeleteFunc(sub.tags, func(item string) bool {
-			return item == tag
-		})
-
-		shard := s.shard(tag)
-		s.subTags[shard] = slices.DeleteFunc(s.subTags[shard], func(item *Subscription[T]) bool {
-			return item == sub
-		})
-	}
+	panic("not implemented")
+	//s.mx.Lock()
+	//defer s.mx.Unlock()
+	//
+	//for _, tag := range add {
+	//	sub.tags = append(sub.tags, tag)
+	//	shard := s.shard(tag)
+	//	s.subTags[shard] = append(s.subTags[shard], sub)
+	//}
+	//
+	//for _, tag := range remove {
+	//	sub.tags = slices.DeleteFunc(sub.tags, func(item string) bool {
+	//		return item == tag
+	//	})
+	//
+	//	shard := s.shard(tag)
+	//	s.subTags[shard] = slices.DeleteFunc(s.subTags[shard], func(item *Subscription[T]) bool {
+	//		return item == sub
+	//	})
+	//}
 }
 
 func (s *Stream[T]) UnSub(sub *Subscription[T]) {
-	s.mx.Lock()
-	defer s.mx.Unlock()
-
-	s.deleteSub(sub)
-	sub.tags = nil
+	panic("not implemented")
+	//s.mx.Lock()
+	//defer s.mx.Unlock()
+	//
+	//s.deleteSub(sub)
+	//sub.tags = nil
 }
 
 func (s *Stream[T]) Newest() Position {
 	s.mx.Lock()
 	defer s.mx.Unlock()
 	return Position{
-		pos: s.offset + len(s.messages),
+		pos: s.offset + (len(s.messages) - 1),
 	}
 }
 

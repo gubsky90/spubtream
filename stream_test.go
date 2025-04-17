@@ -23,7 +23,7 @@ func (t *TestMessage) MessageTags() []string {
 
 func Test_Stream_Stress(t *testing.T) {
 	stream := New[*TestMessage](context.Background()).
-		WithGCInterval(time.Millisecond * 5000).
+		WithGCInterval(time.Millisecond * 1000).
 		WithWorkersLimit(1024).
 		Stream()
 
@@ -55,7 +55,7 @@ func Test_Stream_Stress(t *testing.T) {
 	var pubs int64
 	go func() {
 		for {
-			stream.Pub(&TestMessage{Tags: []string{"all", tags[int(atomic.AddInt64(&pubs, 1))%len(tags)]}})
+			stream.Pub(&TestMessage{Tags: []string{tags[int(atomic.AddInt64(&pubs, 1))%len(tags)]}})
 		}
 	}()
 
@@ -67,6 +67,39 @@ func Test_Stream_Stress(t *testing.T) {
 			"workers", stream.workers,
 		)
 	}
+}
+
+func Test_Stream_PubSub(t *testing.T) {
+	var receiveCalls int
+	stream := New[*TestMessage](context.Background()).Stream()
+	pos := stream.Newest()
+
+	stream.Pub(&TestMessage{Tags: []string{"first"}})
+
+	stream.SubFunc(func(_ context.Context, msg *TestMessage) error {
+		receiveCalls++
+		return nil
+	}, pos, "first")
+	stream.WaitWorkers()
+
+	assertEq(t, receiveCalls, 1)
+}
+
+func Test_Stream_SubPub(t *testing.T) {
+	var receiveCalls int
+	stream := New[*TestMessage](context.Background()).Stream()
+	pos := stream.Newest()
+
+	stream.SubFunc(func(_ context.Context, msg *TestMessage) error {
+		receiveCalls++
+		return nil
+	}, pos, "first")
+
+	stream.Pub(&TestMessage{Tags: []string{"first"}})
+
+	stream.WaitWorkers()
+
+	assertEq(t, receiveCalls, 1)
 }
 
 func Test_Stream_ReceiveError(t *testing.T) {
