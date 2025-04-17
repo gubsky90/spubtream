@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -23,7 +24,7 @@ func (t *TestMessage) MessageTags() []string {
 func Test_Stream_Stress(t *testing.T) {
 	stream := New[*TestMessage](context.Background()).
 		WithGCInterval(time.Millisecond * 5000).
-		WithWorkersLimit(256).
+		WithWorkersLimit(1024).
 		Stream()
 
 	var received int64
@@ -32,7 +33,7 @@ func Test_Stream_Stress(t *testing.T) {
 	for i := 0; i < 1000000; i++ {
 		stream.SubFunc(func(_ context.Context, msg *TestMessage) error {
 			atomic.AddInt64(&received, 1)
-			// time.Sleep(time.Duration(rand.Intn(10)) * time.Millisecond)
+			time.Sleep(time.Duration(rand.Intn(10)) * time.Millisecond)
 			return nil
 		}, stream.Newest(),
 			"all",
@@ -54,13 +55,17 @@ func Test_Stream_Stress(t *testing.T) {
 	var pubs int64
 	go func() {
 		for {
-			stream.Pub(&TestMessage{Tags: []string{tags[int(atomic.AddInt64(&pubs, 1))%len(tags)]}})
+			stream.Pub(&TestMessage{Tags: []string{"all", tags[int(atomic.AddInt64(&pubs, 1))%len(tags)]}})
 		}
 	}()
 
-	for {
+	for i := 0; i < 10; i++ {
 		time.Sleep(time.Second)
-		fmt.Println("pubs", atomic.SwapInt64(&pubs, 0), "received", atomic.SwapInt64(&received, 0))
+		fmt.Println(
+			"pubs", atomic.SwapInt64(&pubs, 0),
+			"received", atomic.SwapInt64(&received, 0),
+			"workers", stream.workers,
+		)
 	}
 }
 
