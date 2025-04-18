@@ -155,37 +155,3 @@ func assertEq(t *testing.T, act, exp any) {
 		t.Fatalf("act: %s; exp: %s", sact, sexp)
 	}
 }
-
-func Test_Map(t *testing.T) {
-	idle := map[int][]*Subscription[*TestMessage]{}
-	for i := 0; i < 1000000; i++ {
-		tags := EncodeAll(
-			"all",
-			fmt.Sprintf("role#%d", i%10),
-			fmt.Sprintf("user#%d", i%100000),
-		)
-		sub := &Subscription[*TestMessage]{
-			tags: tags,
-		}
-		for _, tag := range tags {
-			idle[tag] = append(idle[tag], sub)
-		}
-	}
-	time.Sleep(time.Hour)
-}
-
-func Test_Slice(t *testing.T) {
-	idle := []*Subscription[*TestMessage]{}
-	for i := 0; i < 1000000; i++ {
-		tags := EncodeAll(
-			"all",
-			fmt.Sprintf("role#%d", i%10),
-			fmt.Sprintf("user#%d", i%100000),
-		)
-		sub := &Subscription[*TestMessage]{
-			tags: tags,
-		}
-		idle = append(idle, sub)
-	}
-	time.Sleep(time.Hour)
-}

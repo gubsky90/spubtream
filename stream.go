@@ -29,7 +29,6 @@ type Stream[T Message] struct {
 	tags     map[int][]int
 	idleSubs map[int][]*Subscription[T]
 
-	// readyq    []*Subscription[T]
 	readyq Q[*Subscription[T]]
 
 	inProcess map[*Subscription[T]]struct{}
@@ -46,6 +45,7 @@ func (s *Stream[T]) worker() {
 			s.workers--
 			s.mx.Unlock()
 			s.workersWG.Done()
+			// TODO: we can reuse this goroutine
 			return
 		}
 
@@ -91,7 +91,6 @@ func (s *Stream[T]) enqReady(sub *Subscription[T]) {
 	if s.workers < s.workersLimit {
 		s.workers++
 		s.workersWG.Add(1)
-		fmt.Println("spawn")
 		go s.worker()
 	}
 }
@@ -198,14 +197,6 @@ func infoMapSlice[K comparable, E any](m map[K][]E) string {
 		elms += len(v)
 	}
 	return fmt.Sprintf("[%d,%d]", keys, elms)
-}
-
-func simpleHash(str string) (sum uint32) {
-	for i := 0; i < len(str); i++ {
-		sum ^= uint32(str[i])
-		sum *= 0x01000193
-	}
-	return
 }
 
 func searchPos(pos, head int, items []int) int {

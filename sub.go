@@ -59,33 +59,54 @@ func (s *Stream[T]) Sub(receiver Receiver[T], pos Position, tags ...string) *Sub
 }
 
 func (s *Stream[T]) ReSub(sub *Subscription[T], add, remove []string) {
-	panic("not implemented")
-	//s.mx.Lock()
-	//defer s.mx.Unlock()
-	//
-	//for _, tag := range add {
-	//	sub.tags = append(sub.tags, tag)
-	//	shard := s.shard(tag)
-	//	s.subTags[shard] = append(s.subTags[shard], sub)
-	//}
-	//
-	//for _, tag := range remove {
-	//	sub.tags = slices.DeleteFunc(sub.tags, func(item string) bool {
-	//		return item == tag
-	//	})
-	//
-	//	shard := s.shard(tag)
-	//	s.subTags[shard] = slices.DeleteFunc(s.subTags[shard], func(item *Subscription[T]) bool {
-	//		return item == sub
-	//	})
-	//}
+	s.mx.Lock()
+	defer s.mx.Unlock()
+
+	var ok bool
+
+	for _, tag := range add {
+		tagID := Encode(tag)
+		if sub.tags, ok = addItem(sub.tags, tagID); !ok {
+			continue
+		}
+
+		switch sub.status {
+		case Idle:
+			s.idleSubs[tagID] = append(s.idleSubs[tagID], sub)
+		case Ready:
+			sub.readyTags = append(sub.readyTags, tagID)
+		default:
+			panic("unexpected")
+		}
+	}
+
+	for _, tag := range remove {
+		tagID := Encode(tag)
+		if sub.tags, ok = deleteItem(sub.tags, tagID); !ok {
+			continue
+		}
+
+		switch sub.status {
+		case Idle:
+			s.idleSubs[tagID], _ = deleteItem(s.idleSubs[tagID], sub)
+		case Ready:
+			sub.readyTags, _ = deleteItem(sub.readyTags, tagID)
+		default:
+			panic("unexpected")
+		}
+	}
 }
 
 func (s *Stream[T]) UnSub(sub *Subscription[T]) {
-	panic("not implemented")
-	//s.mx.Lock()
-	//defer s.mx.Unlock()
-	//sub.tags = nil
+	s.mx.Lock()
+	defer s.mx.Unlock()
+	for _, tagID := range sub.tags {
+		s.idleSubs[tagID] = slices.DeleteFunc(s.idleSubs[tagID], func(el *Subscription[T]) bool {
+			return el == sub
+		})
+	}
+	sub.tags = nil
+	sub.readyTags = nil
 }
 
 func (s *Stream[T]) Newest() Position {
@@ -107,4 +128,20 @@ func (s *Stream[T]) After(cmp func(T) int) (Position, error) {
 	return Position{
 		pos: n + s.offset,
 	}, nil
+}
+
+func deleteItem[S ~[]E, E comparable](s S, e E) (S, bool) {
+	i := slices.Index(s, e)
+	if i < 0 {
+		return s, false
+	}
+	s[i] = s[len(s)-1]
+	return s[:len(s)-1], true
+}
+
+func addItem[S ~[]E, E comparable](s S, e E) (S, bool) {
+	if slices.Contains(s, e) {
+		return s, false
+	}
+	return append(s, e), true
 }
