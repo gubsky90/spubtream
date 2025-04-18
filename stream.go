@@ -13,19 +13,20 @@ type Message interface {
 }
 
 type Stream[T Message] struct {
-	ctx      context.Context
-	mx       sync.Mutex
-	commonWG sync.WaitGroup
+	ctx       context.Context
+	mx        sync.Mutex
+	commonWG  sync.WaitGroup
+	workersWG sync.WaitGroup
 
-	workersWG       sync.WaitGroup
-	workers         int
 	workersLimit    int
+	bufferSizeLimit int
 	waitForLaggards bool
 
+	workers  int
 	offset   int
 	messages []T
 	tags     map[int][]int
-	idleSubs [512][]*Subscription[T]
+	idleSubs map[int][]*Subscription[T]
 
 	readyq    []*Subscription[T]
 	inProcess map[*Subscription[T]]struct{}
@@ -34,14 +35,6 @@ type Stream[T Message] struct {
 func (s *Stream[T]) WaitWorkers() {
 	s.workersWG.Wait()
 }
-
-func (s *Stream[T]) shard(tag int) int {
-	return tag % len(s.idleSubs)
-}
-
-//func (s *Stream[T]) shard(tag string) int {
-//	return int(simpleHash(tag)) % len(s.idleSubs)
-//}
 
 func (s *Stream[T]) worker() {
 	s.mx.Lock()
@@ -114,19 +107,10 @@ func (s *Stream[T]) idle(sub *Subscription[T]) {
 	if sub.status == Idle {
 		panic("unexpected")
 	}
-
-	for _, shard := range sub.readyShards {
-		s.idleSubs[shard] = append(s.idleSubs[shard], sub)
+	for _, tagID := range sub.readyTags {
+		s.idleSubs[tagID] = append(s.idleSubs[tagID], sub)
 	}
-	sub.readyShards = sub.readyShards[:0]
-
-	//for _, tag := range sub.tags {
-	//	shard := s.shard(tag)
-	//	s.idleSubs[shard] = append(s.idleSubs[shard], sub)
-	//	//if !slices.Contains(s.idleSubs[shard], sub) {
-	//	//	s.idleSubs[shard] = append(s.idleSubs[shard], sub)
-	//	//}
-	//}
+	sub.readyTags = sub.readyTags[:0]
 	sub.status = Idle
 }
 

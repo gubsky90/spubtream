@@ -44,6 +44,11 @@ func (cfg *Config[T]) WithGCInterval(interval time.Duration) *Config[T] {
 	return cfg
 }
 
+func (cfg *Config[T]) WithBufferSizeLimit(limit int) *Config[T] {
+	cfg.stream.bufferSizeLimit = limit
+	return cfg
+}
+
 func (cfg *Config[T]) Stream() *Stream[T] {
 	stream := cfg.stream
 	if cfg.gcFunc != nil {
@@ -66,11 +71,14 @@ func New[T Message](ctx context.Context) *Config[T] {
 			return len(messages)
 		},
 		stream: &Stream[T]{
-			ctx:             ctx,
-			tags:            map[int][]int{},
-			inProcess:       map[*Subscription[T]]struct{}{},
+			ctx:       ctx,
+			tags:      map[int][]int{},
+			inProcess: map[*Subscription[T]]struct{}{},
+			idleSubs:  map[int][]*Subscription[T]{},
+
 			workersLimit:    128,
 			waitForLaggards: true,
+			bufferSizeLimit: 10000,
 		},
 	}
 }

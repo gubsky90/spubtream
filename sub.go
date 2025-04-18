@@ -23,7 +23,7 @@ type Subscription[T Message] struct {
 	pos      int
 	status   uint8
 
-	readyShards []int
+	readyTags []int
 }
 
 type Position struct {
@@ -49,20 +49,10 @@ func (s *Stream[T]) Sub(receiver Receiver[T], pos Position, tags ...string) *Sub
 	}
 
 	if len(sub.tags) > 0 {
-		sort.Ints(sub.tags)
-
-		sub.readyShards = make([]int, 0, len(sub.tags))
-
-		for _, tag := range sub.tags {
-			shard := s.shard(tag)
-			if !slices.Contains(sub.readyShards, shard) {
-				sub.readyShards = append(sub.readyShards, shard)
-			}
-		}
-
+		sub.readyTags = slices.Clone(sub.tags)
 		s.mx.Lock()
-		defer s.mx.Unlock()
 		s.enqSub(sub)
+		s.mx.Unlock()
 	}
 
 	return sub
@@ -95,8 +85,6 @@ func (s *Stream[T]) UnSub(sub *Subscription[T]) {
 	panic("not implemented")
 	//s.mx.Lock()
 	//defer s.mx.Unlock()
-	//
-	//s.deleteSub(sub)
 	//sub.tags = nil
 }
 

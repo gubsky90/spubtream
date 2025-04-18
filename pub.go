@@ -1,10 +1,9 @@
 package spubtream
 
 import (
-	"slices"
+	"time"
 )
 
-// TODO: refactor
 func (s *Stream[T]) Pub(msg T) {
 	messageTags := msg.MessageTags()
 	if len(messageTags) == 0 {
@@ -13,19 +12,19 @@ func (s *Stream[T]) Pub(msg T) {
 
 	tags := EncodeAll(messageTags...)
 
-	// TODO: add to config
-	//limit := 10000
-	//for {
-	//	s.mx.Lock()
-	//	if len(s.messages) > limit {
-	//		s.mx.Unlock()
-	//		time.Sleep(time.Millisecond / 10)
-	//		continue
-	//	}
-	//	break
-	//}
-
-	s.mx.Lock()
+	if s.bufferSizeLimit > 0 {
+		for {
+			s.mx.Lock()
+			if len(s.messages) > s.bufferSizeLimit {
+				s.mx.Unlock()
+				time.Sleep(time.Millisecond / 10)
+				continue
+			}
+			break
+		}
+	} else {
+		s.mx.Lock()
+	}
 
 	defer s.mx.Unlock()
 
@@ -34,38 +33,15 @@ func (s *Stream[T]) Pub(msg T) {
 
 	for _, tag := range tags {
 		s.tags[tag] = append(s.tags[tag], msgID)
-
-		shard := s.shard(tag)
-		idle := s.idleSubs[shard]
-		var j int
-		for _, sub := range idle {
+		for _, sub := range s.idleSubs[tag] {
 			if sub.status != Idle {
-				sub.readyShards = append(sub.readyShards, shard)
-				// panic("unexpected")
-				// while subscribe we can have two same sub in one shard (tag collision)
-				// also same subscribe can be in several idleSubs shards (multiple tags)
+				sub.readyTags = append(sub.readyTags, tag)
 				continue
 			}
-
-			// recheck for collision
-			// TODO: optimize this
-
-			contains := existsInOrdered(sub.tags, tag)
-			if !contains {
-				idle[j] = sub
-				j++
-				continue
-			}
-
-			sub.readyShards = append(sub.readyShards, shard)
 			sub.pos = msgID
+			sub.readyTags = append(sub.readyTags, tag)
 			s.enqReady(sub)
 		}
-		s.idleSubs[shard] = idle[:j]
+		s.idleSubs[tag] = s.idleSubs[tag][:0]
 	}
-}
-
-func existsInOrdered(s []int, e int) bool {
-	_, ok := slices.BinarySearch(s, e)
-	return ok
 }

@@ -22,6 +22,8 @@ func (t *TestMessage) MessageTags() []string {
 }
 
 func Test_Stream_Stress(t *testing.T) {
+	// t.Skip()
+
 	stream := New[*TestMessage](context.Background()).
 		WithGCInterval(time.Millisecond * 1000).
 		WithWorkersLimit(1024).
@@ -44,10 +46,10 @@ func Test_Stream_Stress(t *testing.T) {
 	fmt.Println("Sub done", time.Since(ts))
 
 	var tags []string
-	//tags = append(tags, "all")
-	//for i := 0; i < 10; i++ {
-	//	tags = append(tags, fmt.Sprintf("role#%d", i))
-	//}
+	tags = append(tags, "all")
+	for i := 0; i < 10; i++ {
+		tags = append(tags, fmt.Sprintf("role#%d", i))
+	}
 	for i := 0; i < 100000; i++ {
 		tags = append(tags, fmt.Sprintf("user#%d", i))
 	}
@@ -59,52 +61,13 @@ func Test_Stream_Stress(t *testing.T) {
 		}
 	}()
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 10000; i++ {
 		time.Sleep(time.Second)
 		fmt.Println(
 			"pubs", atomic.SwapInt64(&pubs, 0),
 			"received", atomic.SwapInt64(&received, 0),
 			"workers", stream.workers,
 		)
-	}
-}
-
-func Test_Stream_some(t *testing.T) {
-	stream := New[*TestMessage](context.Background()).Stream()
-	pos := stream.Newest()
-
-	fmt.Println("Sub")
-	stream.SubFunc(func(_ context.Context, msg *TestMessage) error {
-		fmt.Println("[Receive]", msg.Tags)
-		return nil
-	}, pos, "all", "one", "two")
-
-	for shardID, subs := range stream.idleSubs {
-		if len(subs) == 0 {
-			continue
-		}
-		fmt.Println(shardID, subs)
-	}
-
-	fmt.Println("Pub")
-	stream.Pub(&TestMessage{Tags: []string{"one"}})
-	stream.Pub(&TestMessage{Tags: []string{"two"}})
-
-	for shardID, subs := range stream.idleSubs {
-		if len(subs) == 0 {
-			continue
-		}
-		fmt.Println(shardID, subs)
-	}
-
-	fmt.Println("WaitWorkers")
-	stream.WaitWorkers()
-
-	for shardID, subs := range stream.idleSubs {
-		if len(subs) == 0 {
-			continue
-		}
-		fmt.Println(shardID, subs)
 	}
 }
 
@@ -235,25 +198,6 @@ func Benchmark_Pub(b *testing.B) {
 			stream.Pub(&TestMessage{Tags: []string{"one", "two"}})
 		} else {
 			stream.Pub(&TestMessage{Tags: []string{"one"}})
-		}
-	}
-}
-
-func Benchmark_Contains(b *testing.B) {
-	shard := make([]*Subscription[*TestMessage], 1000000)
-	for i := range shard {
-		shard[i] = &Subscription[*TestMessage]{
-			tags: []int{1, 2, 3},
-		}
-	}
-
-	tag := 3
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		for _, sub := range shard {
-			existsInOrdered(sub.tags, tag)
 		}
 	}
 }
