@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -19,56 +17,6 @@ type TestMessage struct {
 
 func (t *TestMessage) MessageTags() []string {
 	return t.Tags
-}
-
-func Test_Stream_Stress(t *testing.T) {
-	// t.Skip()
-
-	stream := New[*TestMessage](context.Background()).
-		WithGCInterval(time.Millisecond * 1000).
-		WithWorkersLimit(1024).
-		Stream()
-
-	var received int64
-
-	ts := time.Now()
-	for i := 0; i < 1000000; i++ {
-		stream.SubFunc(func(_ context.Context, msg *TestMessage) error {
-			atomic.AddInt64(&received, 1)
-			time.Sleep(time.Duration(rand.Intn(10)) * time.Millisecond)
-			return nil
-		}, stream.Newest(),
-			fmt.Sprintf("role#%d", i%10),
-			"all",
-			fmt.Sprintf("user#%d", i%100000),
-		)
-	}
-	fmt.Println("Sub done", time.Since(ts))
-
-	var tags []string
-	tags = append(tags, "all")
-	for i := 0; i < 10; i++ {
-		tags = append(tags, fmt.Sprintf("role#%d", i))
-	}
-	for i := 0; i < 100000; i++ {
-		tags = append(tags, fmt.Sprintf("user#%d", i))
-	}
-
-	var pubs int64
-	go func() {
-		for {
-			stream.Pub(&TestMessage{Tags: []string{tags[int(atomic.AddInt64(&pubs, 1))%len(tags)]}})
-		}
-	}()
-
-	for i := 0; i < 10000; i++ {
-		time.Sleep(time.Second)
-		fmt.Println(
-			"pubs", atomic.SwapInt64(&pubs, 0),
-			"received", atomic.SwapInt64(&received, 0),
-			"workers", stream.workers,
-		)
-	}
 }
 
 func Test_Stream_PubSub(t *testing.T) {

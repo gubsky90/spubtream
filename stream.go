@@ -2,6 +2,7 @@ package spubtream
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"slices"
 	"sort"
@@ -28,7 +29,9 @@ type Stream[T Message] struct {
 	tags     map[int][]int
 	idleSubs map[int][]*Subscription[T]
 
-	readyq    []*Subscription[T]
+	// readyq    []*Subscription[T]
+	readyq Q[*Subscription[T]]
+
 	inProcess map[*Subscription[T]]struct{}
 }
 
@@ -39,15 +42,14 @@ func (s *Stream[T]) WaitWorkers() {
 func (s *Stream[T]) worker() {
 	s.mx.Lock()
 	for {
-		if len(s.readyq) == 0 {
+		if s.readyq.Empty() {
 			s.workers--
 			s.mx.Unlock()
 			s.workersWG.Done()
 			return
 		}
 
-		sub := s.readyq[0]
-		s.readyq = s.readyq[1:]
+		sub := s.readyq.Deq()
 
 		if len(sub.tags) == 0 { // unsubscribed
 			continue
@@ -85,10 +87,11 @@ func (s *Stream[T]) handleReceiverError(sub *Subscription[T], err error) {
 
 func (s *Stream[T]) enqReady(sub *Subscription[T]) {
 	sub.status = Ready
-	s.readyq = append(s.readyq, sub)
+	s.readyq.Enq(sub)
 	if s.workers < s.workersLimit {
 		s.workers++
 		s.workersWG.Add(1)
+		fmt.Println("spawn")
 		go s.worker()
 	}
 }
@@ -121,7 +124,7 @@ func (s *Stream[T]) ready(sub *Subscription[T]) {
 	if sub.status == Unknown {
 		s.enqReady(sub)
 	} else {
-		s.readyq = append(s.readyq, sub)
+		s.readyq.Enq(sub)
 	}
 }
 
@@ -145,11 +148,11 @@ func (s *Stream[T]) gc(fn func(messages []T) int) {
 	usage := 0
 	if s.waitForLaggards {
 		lastSubN := s.offset + len(s.messages)
-		for _, sub := range s.readyq {
+		s.readyq.Scan(func(sub *Subscription[T]) {
 			if sub.pos < lastSubN {
 				lastSubN = sub.pos
 			}
-		}
+		})
 		for sub := range s.inProcess {
 			if sub.pos < lastSubN {
 				lastSubN = sub.pos
@@ -159,6 +162,8 @@ func (s *Stream[T]) gc(fn func(messages []T) int) {
 	}
 
 	n := min(len(s.messages), min(usage, fn(s.messages)))
+
+	// TODO: optimize
 	for i, msg := range s.messages[:n] {
 		msgID := s.offset + i
 		for _, tag := range EncodeAll(msg.MessageTags()...) {
@@ -171,14 +176,28 @@ func (s *Stream[T]) gc(fn func(messages []T) int) {
 	s.messages = append(s.messages[:0], s.messages[n:]...)
 	s.offset += n
 
-	//slog.Info("[GC]",
-	//	"messages", len(s.messages),
-	//	"cap", cap(s.messages),
-	//	"offset", s.offset,
-	//	"n", n,
-	//	"usage", usage,
-	//	"waitForLaggards", s.waitForLaggards,
-	//)
+	slog.Info("[GC]",
+		"messages", len(s.messages),
+		"cap", cap(s.messages),
+		"offset", s.offset,
+		"n", n,
+		"usage", usage,
+		"waitForLaggards", s.waitForLaggards,
+
+		"inProcess", len(s.inProcess),
+		"readyq", s.readyq.Len(),
+		"tags", infoMapSlice(s.tags),
+		"idleSubs", infoMapSlice(s.idleSubs),
+	)
+}
+
+func infoMapSlice[K comparable, E any](m map[K][]E) string {
+	var keys, elms int
+	for _, v := range m {
+		keys++
+		elms += len(v)
+	}
+	return fmt.Sprintf("[%d,%d]", keys, elms)
 }
 
 func simpleHash(str string) (sum uint32) {
