@@ -3,6 +3,7 @@ package spubtream
 import (
 	"context"
 	"errors"
+	"slices"
 	"sort"
 )
 
@@ -17,10 +18,12 @@ type Receiver[T Message] interface {
 }
 
 type Subscription[T Message] struct {
-	tags     []string
+	tags     []int
 	receiver Receiver[T]
 	pos      int
 	status   uint8
+
+	readyShards []int
 }
 
 type Position struct {
@@ -39,13 +42,24 @@ func (s *Stream[T]) SubFunc(receiver ReceiverFunc[T], pos Position, tags ...stri
 
 func (s *Stream[T]) Sub(receiver Receiver[T], pos Position, tags ...string) *Subscription[T] {
 	sub := &Subscription[T]{
-		tags:     tags,
+		tags:     EncodeAll(tags...),
 		receiver: receiver,
 		pos:      pos.pos,
 		status:   Unknown,
 	}
 
-	if len(tags) > 0 {
+	if len(sub.tags) > 0 {
+		sort.Ints(sub.tags)
+
+		sub.readyShards = make([]int, 0, len(sub.tags))
+
+		for _, tag := range sub.tags {
+			shard := s.shard(tag)
+			if !slices.Contains(sub.readyShards, shard) {
+				sub.readyShards = append(sub.readyShards, shard)
+			}
+		}
+
 		s.mx.Lock()
 		defer s.mx.Unlock()
 		s.enqSub(sub)

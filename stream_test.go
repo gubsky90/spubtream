@@ -36,8 +36,8 @@ func Test_Stream_Stress(t *testing.T) {
 			time.Sleep(time.Duration(rand.Intn(10)) * time.Millisecond)
 			return nil
 		}, stream.Newest(),
-			"all",
 			fmt.Sprintf("role#%d", i%10),
+			"all",
 			fmt.Sprintf("user#%d", i%100000),
 		)
 	}
@@ -66,6 +66,45 @@ func Test_Stream_Stress(t *testing.T) {
 			"received", atomic.SwapInt64(&received, 0),
 			"workers", stream.workers,
 		)
+	}
+}
+
+func Test_Stream_some(t *testing.T) {
+	stream := New[*TestMessage](context.Background()).Stream()
+	pos := stream.Newest()
+
+	fmt.Println("Sub")
+	stream.SubFunc(func(_ context.Context, msg *TestMessage) error {
+		fmt.Println("[Receive]", msg.Tags)
+		return nil
+	}, pos, "all", "one", "two")
+
+	for shardID, subs := range stream.idleSubs {
+		if len(subs) == 0 {
+			continue
+		}
+		fmt.Println(shardID, subs)
+	}
+
+	fmt.Println("Pub")
+	stream.Pub(&TestMessage{Tags: []string{"one"}})
+	stream.Pub(&TestMessage{Tags: []string{"two"}})
+
+	for shardID, subs := range stream.idleSubs {
+		if len(subs) == 0 {
+			continue
+		}
+		fmt.Println(shardID, subs)
+	}
+
+	fmt.Println("WaitWorkers")
+	stream.WaitWorkers()
+
+	for shardID, subs := range stream.idleSubs {
+		if len(subs) == 0 {
+			continue
+		}
+		fmt.Println(shardID, subs)
 	}
 }
 
@@ -174,12 +213,47 @@ func Benchmark_nextPos(b *testing.B) {
 			s.Pub(&TestMessage{Tags: []string{"one"}})
 		}
 	}
+
+	two := Encode("two")
+
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		pos := 0
 		for pos < len(s.messages) {
-			pos, _ = s.nextPos([]string{"two"}, pos)
+			pos, _ = s.nextPos([]int{two}, pos)
+		}
+	}
+}
+
+func Benchmark_Pub(b *testing.B) {
+	stream := New[*TestMessage](context.Background()).Stream()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if i%20000 == 0 {
+			stream.Pub(&TestMessage{Tags: []string{"one", "two"}})
+		} else {
+			stream.Pub(&TestMessage{Tags: []string{"one"}})
+		}
+	}
+}
+
+func Benchmark_Contains(b *testing.B) {
+	shard := make([]*Subscription[*TestMessage], 1000000)
+	for i := range shard {
+		shard[i] = &Subscription[*TestMessage]{
+			tags: []int{1, 2, 3},
+		}
+	}
+
+	tag := 3
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for _, sub := range shard {
+			existsInOrdered(sub.tags, tag)
 		}
 	}
 }
@@ -188,4 +262,38 @@ func assertEq(t *testing.T, act, exp any) {
 	if sact, sexp := fmt.Sprint(act), fmt.Sprint(exp); sact != sexp {
 		t.Fatalf("act: %s; exp: %s", sact, sexp)
 	}
+}
+
+func Test_Map(t *testing.T) {
+	idle := map[int][]*Subscription[*TestMessage]{}
+	for i := 0; i < 1000000; i++ {
+		tags := EncodeAll(
+			"all",
+			fmt.Sprintf("role#%d", i%10),
+			fmt.Sprintf("user#%d", i%100000),
+		)
+		sub := &Subscription[*TestMessage]{
+			tags: tags,
+		}
+		for _, tag := range tags {
+			idle[tag] = append(idle[tag], sub)
+		}
+	}
+	time.Sleep(time.Hour)
+}
+
+func Test_Slice(t *testing.T) {
+	idle := []*Subscription[*TestMessage]{}
+	for i := 0; i < 1000000; i++ {
+		tags := EncodeAll(
+			"all",
+			fmt.Sprintf("role#%d", i%10),
+			fmt.Sprintf("user#%d", i%100000),
+		)
+		sub := &Subscription[*TestMessage]{
+			tags: tags,
+		}
+		idle = append(idle, sub)
+	}
+	time.Sleep(time.Hour)
 }

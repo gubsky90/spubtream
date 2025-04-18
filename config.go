@@ -67,7 +67,7 @@ func New[T Message](ctx context.Context) *Config[T] {
 		},
 		stream: &Stream[T]{
 			ctx:             ctx,
-			tags:            map[string][]int{},
+			tags:            map[int][]int{},
 			inProcess:       map[*Subscription[T]]struct{}{},
 			workersLimit:    128,
 			waitForLaggards: true,

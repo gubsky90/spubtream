@@ -24,7 +24,7 @@ type Stream[T Message] struct {
 
 	offset   int
 	messages []T
-	tags     map[string][]int
+	tags     map[int][]int
 	idleSubs [512][]*Subscription[T]
 
 	readyq    []*Subscription[T]
@@ -35,9 +35,13 @@ func (s *Stream[T]) WaitWorkers() {
 	s.workersWG.Wait()
 }
 
-func (s *Stream[T]) shard(tag string) int {
-	return int(simpleHash(tag)) % len(s.idleSubs)
+func (s *Stream[T]) shard(tag int) int {
+	return tag % len(s.idleSubs)
 }
+
+//func (s *Stream[T]) shard(tag string) int {
+//	return int(simpleHash(tag)) % len(s.idleSubs)
+//}
 
 func (s *Stream[T]) worker() {
 	s.mx.Lock()
@@ -110,13 +114,19 @@ func (s *Stream[T]) idle(sub *Subscription[T]) {
 	if sub.status == Idle {
 		panic("unexpected")
 	}
-	for _, tag := range sub.tags {
-		shard := s.shard(tag)
+
+	for _, shard := range sub.readyShards {
 		s.idleSubs[shard] = append(s.idleSubs[shard], sub)
-		//if !slices.Contains(s.idleSubs[shard], sub) {
-		//	s.idleSubs[shard] = append(s.idleSubs[shard], sub)
-		//}
 	}
+	sub.readyShards = sub.readyShards[:0]
+
+	//for _, tag := range sub.tags {
+	//	shard := s.shard(tag)
+	//	s.idleSubs[shard] = append(s.idleSubs[shard], sub)
+	//	//if !slices.Contains(s.idleSubs[shard], sub) {
+	//	//	s.idleSubs[shard] = append(s.idleSubs[shard], sub)
+	//	//}
+	//}
 	sub.status = Idle
 }
 
@@ -126,10 +136,12 @@ func (s *Stream[T]) ready(sub *Subscription[T]) {
 	}
 	if sub.status == Unknown {
 		s.enqReady(sub)
+	} else {
+		s.readyq = append(s.readyq, sub)
 	}
 }
 
-func (s *Stream[T]) nextPos(tags []string, pos int) (int, bool) {
+func (s *Stream[T]) nextPos(tags []int, pos int) (int, bool) {
 	streamHead := s.offset + len(s.messages)
 	head := streamHead
 	for _, tag := range tags {
@@ -165,7 +177,7 @@ func (s *Stream[T]) gc(fn func(messages []T) int) {
 	n := min(len(s.messages), min(usage, fn(s.messages)))
 	for i, msg := range s.messages[:n] {
 		msgID := s.offset + i
-		for _, tag := range msg.MessageTags() {
+		for _, tag := range EncodeAll(msg.MessageTags()...) {
 			s.tags[tag] = slices.DeleteFunc(s.tags[tag], func(i int) bool {
 				return i == msgID
 			})
