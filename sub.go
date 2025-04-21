@@ -48,6 +48,8 @@ func (s *Stream[T]) Sub(receiver Receiver[T], pos Position, tags ...string) *Sub
 		status:   Unknown,
 	}
 
+	// TODO: check for laggard
+
 	if len(sub.tags) > 0 {
 		sub.readyTags = slices.Clone(sub.tags)
 		s.mx.Lock()

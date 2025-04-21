@@ -17,10 +17,10 @@ func (cfg *Config[T]) WithWorkersLimit(limit int) *Config[T] {
 	return cfg
 }
 
-func (cfg *Config[T]) WithWaitForLaggards(wait bool) *Config[T] {
-	cfg.stream.waitForLaggards = wait
-	return cfg
-}
+//func (cfg *Config[T]) WithWaitForLaggards(wait bool) *Config[T] {
+//	cfg.stream.waitForLaggards = wait
+//	return cfg
+//}
 
 func (cfg *Config[T]) WithTTL(ttl time.Duration, fn func(T) time.Time) *Config[T] {
 	cfg.gcFunc = func(messages []T) int {
@@ -66,7 +66,7 @@ func (cfg *Config[T]) Stream() *Stream[T] {
 
 func New[T Message](ctx context.Context) *Config[T] {
 	return &Config[T]{
-		gcInterval: 10 * time.Second,
+		gcInterval: time.Second,
 		gcFunc: func(messages []T) int {
 			return len(messages)
 		},

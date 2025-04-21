@@ -55,7 +55,7 @@ func (s *Stream[T]) worker() {
 		}
 
 		//if sub.pos-s.offset < 0 {
-		//	handle laggard
+		//	panic("laggard 1")
 		//}
 
 		s.inProcess[sub] = struct{}{}
@@ -71,6 +71,11 @@ func (s *Stream[T]) worker() {
 		s.mx.Lock()
 		delete(s.inProcess, sub)
 		if err == nil {
+
+			//if sub.pos-s.offset < 0 {
+			//	panic("laggard 2")
+			//}
+
 			s.enqSub(sub)
 		}
 	}
@@ -143,7 +148,7 @@ func (s *Stream[T]) gc(fn func(messages []T) int) {
 		return
 	}
 
-	usage := 0
+	usage := len(s.messages)
 	if s.waitForLaggards {
 		lastSubN := s.offset + len(s.messages)
 		s.readyq.Scan(func(sub *Subscription[T]) {
@@ -159,7 +164,7 @@ func (s *Stream[T]) gc(fn func(messages []T) int) {
 		usage = lastSubN - s.offset
 	}
 
-	n := min(len(s.messages), min(usage, fn(s.messages)))
+	n := min(usage, fn(s.messages))
 
 	noffset := s.offset + n
 	for tagID, items := range s.tags {
@@ -177,19 +182,19 @@ func (s *Stream[T]) gc(fn func(messages []T) int) {
 	s.messages = append(s.messages[:0], s.messages[n:]...)
 	s.offset += n
 
-	//slog.Info("[GC]",
-	//	"messages", len(s.messages),
-	//	"cap", cap(s.messages),
-	//	"offset", s.offset,
-	//	"n", n,
-	//	"usage", usage,
-	//	"waitForLaggards", s.waitForLaggards,
-	//
-	//	"inProcess", len(s.inProcess),
-	//	"readyq", s.readyq.Len(),
-	//	"tags", infoMapSlice(s.tags),
-	//	"idleSubs", infoMapSlice(s.idleSubs),
-	//)
+	slog.Info("[GC]",
+		"messages", len(s.messages),
+		"cap", cap(s.messages),
+		"offset", s.offset,
+		"n", n,
+		"usage", usage,
+		"waitForLaggards", s.waitForLaggards,
+
+		"inProcess", len(s.inProcess),
+		"readyq", s.readyq.Len(),
+		"tags", infoMapSlice(s.tags),
+		"idleSubs", infoMapSlice(s.idleSubs),
+	)
 }
 
 func infoMapSlice[K comparable, E any](m map[K][]E) string {
