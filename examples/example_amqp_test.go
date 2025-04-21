@@ -12,6 +12,7 @@ import (
 )
 
 func Test_AMQP(t *testing.T) {
+	ctx := context.Background()
 	url := "amqp://guest:guest@rabbit.stream.local:5672/"
 	queue := "test"
 
@@ -52,10 +53,7 @@ func Test_AMQP(t *testing.T) {
 		stream.Sub(spubtream.ReceiverFunc[*AMQPMessage](func(_ context.Context, msg *AMQPMessage) error {
 			atomic.AddInt64(&received, 1)
 			return nil
-		}), stream.Newest(), []string{
-			"all",
-			fmt.Sprintf("user#%d", i%100000),
-		})
+		}), stream.Newest(), "all", fmt.Sprintf("user#%d", i%100000))
 	}
 
 	for d := range delivery {
@@ -65,6 +63,6 @@ func Test_AMQP(t *testing.T) {
 			// do some
 			continue
 		}
-		stream.Pub(msg)
+		_ = stream.Pub(ctx, msg)
 	}
 }

@@ -58,7 +58,7 @@ func Test_Redis(t *testing.T) {
 	stream.Sub(spubtream.ReceiverFunc[*RedisMessage](func(_ context.Context, msg *RedisMessage) error {
 		fmt.Println(">>>", string(msg.Payload))
 		return nil
-	}), stream.Newest(), []string{"one"})
+	}), stream.Newest(), "one")
 
 	// -----------------
 	// Read history
@@ -72,7 +72,7 @@ func Test_Redis(t *testing.T) {
 	}
 	for _, xmsg := range msgs {
 		msg, _ := RedisMessageFromXMessage(xmsg)
-		stream.Pub(msg)
+		_ = stream.Pub(ctx, msg)
 	}
 
 	// -----------------
@@ -81,7 +81,7 @@ func Test_Redis(t *testing.T) {
 
 	_ = consumeRedis(ctx, client, redisStreamName, "0", func(xmsg redis.XMessage) {
 		msg, _ := RedisMessageFromXMessage(xmsg)
-		stream.Pub(msg)
+		_ = stream.Pub(ctx, msg)
 	})
 
 	time.Sleep(time.Minute)

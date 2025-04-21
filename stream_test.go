@@ -24,7 +24,7 @@ func Test_Stream_PubSub(t *testing.T) {
 	stream := New[*TestMessage](context.Background()).Stream()
 	pos := stream.Newest()
 
-	stream.Pub(&TestMessage{Tags: []string{"first"}})
+	_ = stream.Pub(context.TODO(), &TestMessage{Tags: []string{"first"}})
 
 	stream.SubFunc(func(_ context.Context, msg *TestMessage) error {
 		receiveCalls++
@@ -45,7 +45,7 @@ func Test_Stream_SubPub(t *testing.T) {
 		return nil
 	}, pos, "first")
 
-	stream.Pub(&TestMessage{Tags: []string{"first"}})
+	_ = stream.Pub(context.TODO(), &TestMessage{Tags: []string{"first"}})
 
 	stream.WaitWorkers()
 
@@ -61,10 +61,10 @@ func Test_Stream_ReceiveError(t *testing.T) {
 		return errors.New("test")
 	}, stream.Newest(), "first")
 
-	stream.Pub(&TestMessage{Tags: []string{"first"}})
+	_ = stream.Pub(context.TODO(), &TestMessage{Tags: []string{"first"}})
 	stream.WaitWorkers()
 
-	stream.Pub(&TestMessage{Tags: []string{"first"}})
+	_ = stream.Pub(context.TODO(), &TestMessage{Tags: []string{"first"}})
 
 	assertEq(t, receiveCalls, 1)
 }
@@ -78,14 +78,14 @@ func Test_Stream_ReSub(t *testing.T) {
 		return nil
 	}, stream.Newest(), "first")
 
-	stream.Pub(&TestMessage{ID: 1, Tags: []string{"first"}})
-	stream.Pub(&TestMessage{ID: 2, Tags: []string{"second"}})
+	_ = stream.Pub(context.TODO(), &TestMessage{ID: 1, Tags: []string{"first"}})
+	_ = stream.Pub(context.TODO(), &TestMessage{ID: 2, Tags: []string{"second"}})
 	stream.WaitWorkers()
 
 	stream.ReSub(sub, []string{"second"}, []string{"first"})
 
-	stream.Pub(&TestMessage{ID: 3, Tags: []string{"first"}})
-	stream.Pub(&TestMessage{ID: 4, Tags: []string{"second"}})
+	_ = stream.Pub(context.TODO(), &TestMessage{ID: 3, Tags: []string{"first"}})
+	_ = stream.Pub(context.TODO(), &TestMessage{ID: 4, Tags: []string{"second"}})
 	stream.WaitWorkers()
 
 	assertEq(t, received, []int{1, 4})
@@ -100,28 +100,30 @@ func Test_Stream_UnSub(t *testing.T) {
 		return nil
 	}, stream.Newest(), "first", "second")
 
-	stream.Pub(&TestMessage{ID: 1, Tags: []string{"first"}})
-	stream.Pub(&TestMessage{ID: 2, Tags: []string{"second"}})
+	_ = stream.Pub(context.TODO(), &TestMessage{ID: 1, Tags: []string{"first"}})
+	_ = stream.Pub(context.TODO(), &TestMessage{ID: 2, Tags: []string{"second"}})
 	stream.WaitWorkers()
 
 	assertEq(t, received, []int{1, 2})
 	received = nil
 	stream.UnSub(sub)
 
-	stream.Pub(&TestMessage{ID: 3, Tags: []string{"first"}})
-	stream.Pub(&TestMessage{ID: 4, Tags: []string{"second"}})
+	_ = stream.Pub(context.TODO(), &TestMessage{ID: 3, Tags: []string{"first"}})
+	_ = stream.Pub(context.TODO(), &TestMessage{ID: 4, Tags: []string{"second"}})
 	stream.WaitWorkers()
 
 	assertEq(t, received, []int{})
 }
 
 func Benchmark_nextPos(b *testing.B) {
-	s := New[*TestMessage](context.Background()).Stream()
+	stream := New[*TestMessage](context.Background()).
+		WithBufferSizeLimit(0).
+		Stream()
 	for i := 0; i < 100000; i++ {
 		if i%20000 == 0 {
-			s.Pub(&TestMessage{Tags: []string{"one", "two"}})
+			_ = stream.Pub(context.TODO(), &TestMessage{Tags: []string{"one", "two"}})
 		} else {
-			s.Pub(&TestMessage{Tags: []string{"one"}})
+			_ = stream.Pub(context.TODO(), &TestMessage{Tags: []string{"one"}})
 		}
 	}
 
@@ -131,21 +133,28 @@ func Benchmark_nextPos(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		pos := 0
-		for pos < len(s.messages) {
-			pos, _ = s.nextPos([]int{two}, pos)
+		for pos < len(stream.messages) {
+			pos, _ = stream.nextPos([]int{two}, pos)
 		}
 	}
 }
 
 func Benchmark_Pub(b *testing.B) {
-	stream := New[*TestMessage](context.Background()).Stream()
+	stream := New[*TestMessage](context.Background()).
+		WithBufferSizeLimit(0).
+		Stream()
+
+	ctx := context.TODO()
+	msg1 := &TestMessage{Tags: []string{"one", "two"}}
+	msg2 := &TestMessage{Tags: []string{"one"}}
+
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		if i%20000 == 0 {
-			stream.Pub(&TestMessage{Tags: []string{"one", "two"}})
+			_ = stream.Pub(ctx, msg1)
 		} else {
-			stream.Pub(&TestMessage{Tags: []string{"one"}})
+			_ = stream.Pub(ctx, msg2)
 		}
 	}
 }

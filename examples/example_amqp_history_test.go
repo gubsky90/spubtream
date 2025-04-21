@@ -37,6 +37,7 @@ func AMQPMessageFromDelivery(offset int64, d amqp.Delivery) (*AMQPMessage, error
 }
 
 func Test_AMQP_History(t *testing.T) {
+	ctx := context.Background()
 	url := "amqp://guest:guest@rabbit.stream.local:5672/"
 	queue := "test"
 
@@ -50,7 +51,7 @@ func Test_AMQP_History(t *testing.T) {
 			return
 		}
 		lastOffset = offset
-		stream.Pub(msg)
+		_ = stream.Pub(ctx, msg)
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +70,7 @@ func Test_AMQP_History(t *testing.T) {
 		stream.Sub(spubtream.ReceiverFunc[*AMQPMessage](func(_ context.Context, msg *AMQPMessage) error {
 			fmt.Printf(">>>%#v\n", msg)
 			return nil
-		}), pos, []string{"one"})
+		}), pos, "one")
 	}
 
 	fmt.Println(lastOffset)
@@ -82,7 +83,7 @@ func Test_AMQP_History(t *testing.T) {
 			// do some
 			return
 		}
-		stream.Pub(msg)
+		_ = stream.Pub(ctx, msg)
 	}); err != nil {
 		t.Fatal(err)
 	}

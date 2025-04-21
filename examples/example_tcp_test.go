@@ -31,7 +31,7 @@ func (c *TCPClient) Receive(_ context.Context, msg *TCPMessage) error {
 }
 
 func (c *TCPClient) Reader() {
-	sub := c.stream.Sub(c, c.stream.Newest(), nil)
+	sub := c.stream.Sub(c, c.stream.Newest())
 
 	scanner := bufio.NewScanner(c.conn)
 	for scanner.Scan() {
@@ -52,6 +52,7 @@ func (c *TCPClient) Reader() {
 }
 
 func Test_Example_TCP(t *testing.T) {
+	ctx := context.Background()
 	l, err := net.Listen("tcp", ":8080")
 	if err != nil {
 		t.Fatal(err)
@@ -63,9 +64,9 @@ func Test_Example_TCP(t *testing.T) {
 	go func() {
 		for {
 			time.Sleep(time.Second)
-			stream.Pub(&TCPMessage{Tags: []string{"one"}})
-			stream.Pub(&TCPMessage{Tags: []string{"two"}})
-			stream.Pub(&TCPMessage{Tags: []string{"three"}})
+			_ = stream.Pub(ctx, &TCPMessage{Tags: []string{"one"}})
+			_ = stream.Pub(ctx, &TCPMessage{Tags: []string{"two"}})
+			_ = stream.Pub(ctx, &TCPMessage{Tags: []string{"three"}})
 		}
 	}()
 

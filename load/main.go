@@ -33,9 +33,9 @@ func main() {
 	}()
 
 	stream := spubtream.New[*TestMessage](context.Background()).
-		WithGCInterval(time.Millisecond * 1000).
+		WithGCInterval(time.Millisecond * 100).
 		WithWorkersLimit(4096).
-		WithBufferSizeLimit(1000).
+		WithBufferSizeLimit(10000).
 		Stream()
 
 	var received int64
@@ -47,10 +47,10 @@ func main() {
 			time.Sleep(time.Duration(rand.Intn(10)) * time.Millisecond)
 			return nil
 		}, stream.Newest(),
-			//"all",
-			//fmt.Sprintf("role#%d", i%10),
-			//fmt.Sprintf("user#%d", i%100000),
-			fmt.Sprintf("conn#%d", i),
+			"all",
+			fmt.Sprintf("role#%d", i%10),
+			fmt.Sprintf("user#%d", i%100000),
+			// fmt.Sprintf("conn#%d", i),
 		)
 	}
 	fmt.Println("Sub done", time.Since(ts))
@@ -60,12 +60,12 @@ func main() {
 	//for i := 0; i < 10; i++ {
 	//	tags = append(tags, fmt.Sprintf("role#%d", i))
 	//}
-	//for i := 0; i < 100000; i++ {
-	//	tags = append(tags, fmt.Sprintf("user#%d", i))
-	//}
-	for i := 0; i < 1000000; i++ {
-		tags = append(tags, fmt.Sprintf("conn#%d", i))
+	for i := 0; i < 100000; i++ {
+		tags = append(tags, fmt.Sprintf("user#%d", i))
 	}
+	//for i := 0; i < 1000000; i++ {
+	//	tags = append(tags, fmt.Sprintf("conn#%d", i))
+	//}
 
 	messages := make([]*TestMessage, len(tags))
 	for i, tag := range tags {
@@ -74,8 +74,9 @@ func main() {
 
 	var pubs int64
 	go func() {
+		ctx := context.Background()
 		for {
-			stream.Pub(messages[int(atomic.AddInt64(&pubs, 1))%len(messages)])
+			_ = stream.Pub(ctx, messages[int(atomic.AddInt64(&pubs, 1))%len(messages)])
 		}
 	}()
 

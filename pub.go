@@ -1,37 +1,44 @@
 package spubtream
 
 import (
+	"context"
+	"errors"
 	"time"
 )
 
-func (s *Stream[T]) Pub(msg T) {
+var ErrNoTags = errors.New("no tags")
+
+func (s *Stream[T]) Pub(ctx context.Context, msg T) error {
 	messageTags := msg.MessageTags()
 	if len(messageTags) == 0 {
-		return
+		return ErrNoTags
 	}
-
-	tags := EncodeAll(messageTags...)
 
 	if s.bufferSizeLimit > 0 {
 		for {
 			s.mx.Lock()
-			if len(s.messages) > s.bufferSizeLimit {
-				s.mx.Unlock()
-				time.Sleep(time.Millisecond / 10)
+			if len(s.messages) < s.bufferSizeLimit {
+				break
+			}
+			s.mx.Unlock()
+
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Millisecond):
 				continue
 			}
-			break
 		}
 	} else {
 		s.mx.Lock()
 	}
-
 	defer s.mx.Unlock()
 
 	msgID := s.offset + len(s.messages)
 	s.messages = append(s.messages, msg)
 
-	for _, tag := range tags {
+	for _, messageTag := range messageTags {
+		tag := Encode(messageTag)
 		s.tags[tag] = append(s.tags[tag], msgID)
 		for _, sub := range s.idleSubs[tag] {
 			if sub.status != Idle {
@@ -44,4 +51,6 @@ func (s *Stream[T]) Pub(msg T) {
 		}
 		s.idleSubs[tag] = s.idleSubs[tag][:0]
 	}
+
+	return nil
 }

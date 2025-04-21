@@ -58,7 +58,7 @@ func main() {
 			Payload: delivery.Body,
 		}
 		slog.Info("Pub", "msg", string(delivery.Body))
-		stream.Pub(msg)
+		_ = stream.Pub(ctx, msg)
 	}); err != nil {
 		log.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func main() {
 
 			stream.Sub(&Client{
 				conn: conn,
-			}, stream.Newest(), tags)
+			}, stream.Newest(), tags...)
 		}),
 	}
 
