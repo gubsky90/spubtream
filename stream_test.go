@@ -115,6 +115,40 @@ func Test_Stream_UnSub(t *testing.T) {
 	assertEq(t, received, []int{})
 }
 
+func Test_Stream_gc(t *testing.T) {
+	ctx := context.Background()
+	stream := New[*TestMessage](context.Background()).WithGCInterval(0).Stream()
+	pos := stream.Newest()
+	gcFn := func(messages []*TestMessage) int {
+		return len(messages)
+	}
+
+	_ = stream.Pub(ctx, &TestMessage{ID: 1, Tags: []string{"one"}})
+	_ = stream.Pub(ctx, &TestMessage{ID: 2, Tags: []string{"one"}})
+	_ = stream.Pub(ctx, &TestMessage{ID: 3, Tags: []string{"one"}})
+
+	ch := make(chan *TestMessage)
+	stream.SubFunc(func(_ context.Context, msg *TestMessage) error {
+		ch <- msg
+		return nil
+	}, pos, "one")
+
+	assertEq(t, stream.Oldest().pos, 0)
+	assertEq(t, (<-ch).ID, 1)
+	time.Sleep(time.Millisecond)
+	stream.gc(gcFn)
+
+	assertEq(t, stream.Oldest().pos, 1)
+	assertEq(t, (<-ch).ID, 2)
+	time.Sleep(time.Millisecond)
+	stream.gc(gcFn)
+
+	assertEq(t, stream.Oldest().pos, 2)
+	assertEq(t, (<-ch).ID, 3)
+	time.Sleep(time.Millisecond)
+	stream.gc(gcFn)
+}
+
 func Benchmark_nextPos(b *testing.B) {
 	stream := New[*TestMessage](context.Background()).
 		WithBufferSizeLimit(0).

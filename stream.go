@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"slices"
 	"sort"
 	"sync"
 )
@@ -162,15 +161,17 @@ func (s *Stream[T]) gc(fn func(messages []T) int) {
 
 	n := min(len(s.messages), min(usage, fn(s.messages)))
 
-	// TODO: optimize
-	for i, msg := range s.messages[:n] {
-		msgID := s.offset + i
-		for _, messageTag := range msg.MessageTags() {
-			tag := Encode(messageTag)
-			s.tags[tag] = slices.DeleteFunc(s.tags[tag], func(i int) bool {
-				return i == msgID
-			})
+	noffset := s.offset + n
+	for tagID, items := range s.tags {
+		if items[0] > noffset {
+			continue
 		}
+		i := sort.SearchInts(items, noffset)
+		if i == len(items) {
+			delete(s.tags, tagID)
+			continue
+		}
+		s.tags[tagID] = items[:copy(items, items[i:])]
 	}
 
 	s.messages = append(s.messages[:0], s.messages[n:]...)

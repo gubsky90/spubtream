@@ -33,8 +33,8 @@ func main() {
 	}()
 
 	stream := spubtream.New[*TestMessage](context.Background()).
-		WithGCInterval(time.Millisecond * 100).
-		WithWorkersLimit(4096).
+		WithGCInterval(time.Millisecond * 1000).
+		WithWorkersLimit(1024 * 10).
 		WithBufferSizeLimit(10000).
 		Stream()
 
@@ -56,10 +56,10 @@ func main() {
 	fmt.Println("Sub done", time.Since(ts))
 
 	var tags []string
-	//tags = append(tags, "all")
-	//for i := 0; i < 10; i++ {
-	//	tags = append(tags, fmt.Sprintf("role#%d", i))
-	//}
+	tags = append(tags, "all")
+	for i := 0; i < 10; i++ {
+		tags = append(tags, fmt.Sprintf("role#%d", i))
+	}
 	for i := 0; i < 100000; i++ {
 		tags = append(tags, fmt.Sprintf("user#%d", i))
 	}
@@ -74,9 +74,15 @@ func main() {
 
 	var pubs int64
 	go func() {
+		p := 0
 		ctx := context.Background()
 		for {
-			_ = stream.Pub(ctx, messages[int(atomic.AddInt64(&pubs, 1))%len(messages)])
+			p++
+			atomic.AddInt64(&pubs, 1)
+			_ = stream.Pub(ctx, messages[p%len(messages)])
+			if p%len(messages) == 0 {
+				time.Sleep(time.Second * 30)
+			}
 		}
 	}()
 

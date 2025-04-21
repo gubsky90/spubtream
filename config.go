@@ -51,7 +51,7 @@ func (cfg *Config[T]) WithBufferSizeLimit(limit int) *Config[T] {
 
 func (cfg *Config[T]) Stream() *Stream[T] {
 	stream := cfg.stream
-	if cfg.gcFunc != nil {
+	if cfg.gcFunc != nil && cfg.gcInterval > 0 {
 		stream.commonWG.Add(1)
 		go func() {
 			defer stream.commonWG.Done()

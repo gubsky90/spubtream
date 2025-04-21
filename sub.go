@@ -117,6 +117,14 @@ func (s *Stream[T]) Newest() Position {
 	}
 }
 
+func (s *Stream[T]) Oldest() Position {
+	s.mx.Lock()
+	defer s.mx.Unlock()
+	return Position{
+		pos: s.offset,
+	}
+}
+
 func (s *Stream[T]) After(cmp func(T) int) (Position, error) {
 	// maybe validate message tags?
 	n := sort.Search(len(s.messages), func(i int) bool {
