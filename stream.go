@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"sort"
 	"sync"
+
+	"github.com/gubsky90/spubtream/index"
 )
 
 type Message interface {
@@ -26,7 +28,9 @@ type Stream[T Message] struct {
 	offset   int
 	messages []T
 	tags     map[int][]int
-	idleSubs map[int][]*Subscription[T]
+
+	// idleSubs map[int][]*Subscription[T]
+	idleSubs *index.Map[int, *Subscription[T]]
 
 	readyq Q[*Subscription[T]]
 
@@ -114,7 +118,8 @@ func (s *Stream[T]) idle(sub *Subscription[T]) {
 		panic("unexpected")
 	}
 	for _, tagID := range sub.readyTags {
-		s.idleSubs[tagID] = append(s.idleSubs[tagID], sub)
+		s.idleSubs.Add(tagID, sub)
+		// s.idleSubs[tagID] = append(s.idleSubs[tagID], sub)
 	}
 	sub.readyTags = sub.readyTags[:0]
 	sub.status = Idle
@@ -193,7 +198,8 @@ func (s *Stream[T]) gc(fn func(messages []T) int) {
 		"inProcess", len(s.inProcess),
 		"readyq", s.readyq.Len(),
 		"tags", infoMapSlice(s.tags),
-		"idleSubs", infoMapSlice(s.idleSubs),
+		"idleSubs", s.idleSubs.Stats(),
+		// "idleSubs", infoMapSlice(s.idleSubs),
 	)
 }
 

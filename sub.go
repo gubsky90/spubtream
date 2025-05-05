@@ -74,7 +74,8 @@ func (s *Stream[T]) ReSub(sub *Subscription[T], add, remove []string) {
 
 		switch sub.status {
 		case Idle:
-			s.idleSubs[tagID] = append(s.idleSubs[tagID], sub)
+			s.idleSubs.Add(tagID, sub)
+			// s.idleSubs[tagID] = append(s.idleSubs[tagID], sub)
 		case Ready:
 			sub.readyTags = append(sub.readyTags, tagID)
 		default:
@@ -90,7 +91,8 @@ func (s *Stream[T]) ReSub(sub *Subscription[T], add, remove []string) {
 
 		switch sub.status {
 		case Idle:
-			s.idleSubs[tagID], _ = deleteItem(s.idleSubs[tagID], sub)
+			s.idleSubs.Del(tagID, sub)
+			// s.idleSubs[tagID], _ = deleteItem(s.idleSubs[tagID], sub)
 		case Ready:
 			sub.readyTags, _ = deleteItem(sub.readyTags, tagID)
 		default:
@@ -103,9 +105,10 @@ func (s *Stream[T]) UnSub(sub *Subscription[T]) {
 	s.mx.Lock()
 	defer s.mx.Unlock()
 	for _, tagID := range sub.tags {
-		s.idleSubs[tagID] = slices.DeleteFunc(s.idleSubs[tagID], func(el *Subscription[T]) bool {
-			return el == sub
-		})
+		s.idleSubs.Del(tagID, sub)
+		//s.idleSubs[tagID] = slices.DeleteFunc(s.idleSubs[tagID], func(el *Subscription[T]) bool {
+		//	return el == sub
+		//})
 	}
 	sub.tags = nil
 	sub.readyTags = nil

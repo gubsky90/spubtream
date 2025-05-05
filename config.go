@@ -4,6 +4,8 @@ import (
 	"context"
 	"sort"
 	"time"
+
+	"github.com/gubsky90/spubtream/index"
 )
 
 type Config[T Message] struct {
@@ -74,7 +76,8 @@ func New[T Message](ctx context.Context) *Config[T] {
 			ctx:       ctx,
 			tags:      map[int][]int{},
 			inProcess: map[*Subscription[T]]struct{}{},
-			idleSubs:  map[int][]*Subscription[T]{},
+			// idleSubs:  map[int][]*Subscription[T]{},
+			idleSubs: index.NewMap[int, *Subscription[T]](),
 
 			workersLimit:    128,
 			waitForLaggards: true,
