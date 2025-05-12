@@ -31,8 +31,10 @@ type Stream[T Message] struct {
 
 	// idleSubs map[int][]*Subscription[T]
 	idleSubs *index.Map[int, *Subscription[T]]
+	// idleSubs *index.Sharded[int, *Subscription[T]]
 
-	readyq Q[*Subscription[T]]
+	readyq  Q[*Subscription[T]]
+	readyCh chan *Subscription[T]
 
 	inProcess map[*Subscription[T]]struct{}
 }
@@ -95,11 +97,19 @@ func (s *Stream[T]) handleReceiverError(sub *Subscription[T], err error) {
 
 func (s *Stream[T]) enqReady(sub *Subscription[T]) {
 	sub.status = Ready
+
+	select {
+	case s.readyCh <- sub:
+		return
+	default:
+	}
+
 	s.readyq.Enq(sub)
 	if s.workers < s.workersLimit {
 		s.workers++
 		s.workersWG.Add(1)
-		go s.worker()
+		// go s.worker()
+		go s.worker2()
 	}
 }
 
@@ -117,11 +127,11 @@ func (s *Stream[T]) idle(sub *Subscription[T]) {
 	if sub.status == Idle {
 		panic("unexpected")
 	}
-	for _, tagID := range sub.readyTags {
-		s.idleSubs.Add(tagID, sub)
-		// s.idleSubs[tagID] = append(s.idleSubs[tagID], sub)
+	if sub.status == Unknown {
+		for _, tagID := range sub.tags {
+			s.idleSubs.Add(tagID, sub)
+		}
 	}
-	sub.readyTags = sub.readyTags[:0]
 	sub.status = Idle
 }
 
@@ -169,34 +179,44 @@ func (s *Stream[T]) gc(fn func(messages []T) int) {
 		usage = lastSubN - s.offset
 	}
 
-	n := min(usage, fn(s.messages))
+	drop := min(usage, fn(s.messages))
+	if drop == 0 {
+		return
+	}
 
-	noffset := s.offset + n
+	dropOffset := s.offset + drop
 	for tagID, items := range s.tags {
-		if items[0] > noffset {
+		if len(items) == 0 {
 			continue
 		}
-		i := sort.SearchInts(items, noffset)
+		if items[0] > dropOffset {
+			continue
+		}
+		i := sort.SearchInts(items, dropOffset)
 		if i == len(items) {
 			delete(s.tags, tagID)
+			// s.tags[tagID] = items[:0]
 			continue
 		}
 		s.tags[tagID] = items[:copy(items, items[i:])]
 	}
 
-	s.messages = append(s.messages[:0], s.messages[n:]...)
-	s.offset += n
+	n := copy(s.messages, s.messages[drop:])
+	clear(s.messages[n:])
+	s.messages = s.messages[:n]
+
+	s.offset += drop
 
 	slog.Info("[GC]",
 		"messages", len(s.messages),
 		"cap", cap(s.messages),
 		"offset", s.offset,
-		"n", n,
+		"drop", drop,
 		"usage", usage,
 		"waitForLaggards", s.waitForLaggards,
 
 		"inProcess", len(s.inProcess),
-		"readyq", s.readyq.Len(),
+		"readyq", s.readyq.Stats(),
 		"tags", infoMapSlice(s.tags),
 		"idleSubs", s.idleSubs.Stats(),
 		// "idleSubs", infoMapSlice(s.idleSubs),

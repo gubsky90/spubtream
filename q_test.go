@@ -19,6 +19,21 @@ func printQ(msg string, q Q[int]) {
 	)
 }
 
+func Test_Q_Enq(t *testing.T) {
+	var q Q[int]
+	for i := 0; i < 10; i++ {
+		q.Enq(i)
+		fmt.Println("Enq", q.Stats())
+	}
+	for i := 0; i < 10; i++ {
+		fmt.Println("Deq", q.Deq(), q.Stats())
+	}
+	for i := 0; i < 10; i++ {
+		q.Enq(i)
+		fmt.Println("Enq", q.Stats())
+	}
+}
+
 func Test_Q(t *testing.T) {
 	var q Q[int]
 	printQ("empty", q)

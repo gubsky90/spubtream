@@ -78,10 +78,15 @@ func New[T Message](ctx context.Context) *Config[T] {
 			inProcess: map[*Subscription[T]]struct{}{},
 			// idleSubs:  map[int][]*Subscription[T]{},
 			idleSubs: index.NewMap[int, *Subscription[T]](),
+			//idleSubs: index.NewSharded[int, *Subscription[T]](512, func(key int) int {
+			//	return key
+			//}),
 
 			workersLimit:    128,
 			waitForLaggards: true,
 			bufferSizeLimit: 10000,
+
+			readyCh: make(chan *Subscription[T]),
 		},
 	}
 }

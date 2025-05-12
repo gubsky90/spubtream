@@ -7,52 +7,57 @@ import (
 )
 
 func Test_Shard_add(t *testing.T) {
+	pool := &Pool[int, string]{}
 	shard := &Shard[int, string]{}
 
-	shard.add(1, "one")
-	shard.add(2, "two")
-	shard.add(1, "one_again")
+	shard.add(1, "one", pool)
+	shard.add(3, "three", pool)
+	shard.add(1, "one_again", pool)
+	shard.add(2, "two", pool)
+	shard.add(2, "two_again", pool)
+	shard.add(2, "two", pool)
+	shard.add(2, "two", pool)
+	shard.add(2, "two", pool)
+	shard.add(2, "two", pool)
+	shard.add(2, "two", pool)
+	shard.add(2, "two", pool)
+	shard.add(2, "two", pool)
+	shard.add(4, "four", pool)
+
+	shard.extract(2, func(value string) {
+		fmt.Println("extract", value)
+	}, pool)
 
 	printShard(shard)
 }
 
-func Test_Shard_search(t *testing.T) {
-	shard := &Shard[int, string]{
-		len: 6,
-		pages: []*Page[int, string]{
-			{
-				len:    2,
-				keys:   [256]int{1, 2},
-				values: [256]string{"one", "two"},
-			},
-			{
-				len:    4,
-				offset: 2,
-				keys:   [256]int{0, 0, 2, 3},
-				values: [256]string{"", "", "two", "three"},
-			},
-			{
-				len:    2,
-				keys:   [256]int{3, 4},
-				values: [256]string{"three", "four"},
-			},
-		},
+func Test_Sharded_Example(t *testing.T) {
+	index := NewSharded[int, string](10, func(key int) int {
+		return key
+	})
+
+	index.Add(1, "one")
+	index.Add(2, "two")
+	printIndex(index)
+
+	index.Del(1, "one")
+	printIndex(index)
+}
+
+func printIndex[K cmp.Ordered, V comparable](index *Sharded[K, V]) {
+	for _, shard := range index.shards {
+		printShard(shard)
 	}
-
-	printShard(shard)
-
-	page, pageIndex, index := shard.search(3)
-	fmt.Println(pageIndex, index, page)
 }
 
 func printShard[K cmp.Ordered, V comparable](shard *Shard[K, V]) {
 	for _, page := range shard.pages {
-		fmt.Printf("[%d:%d]{", page.offset, page.len)
-		for i := page.offset; i < page.len; i++ {
-			if i == page.offset {
-				fmt.Printf("%v=%v", page.keys[i], page.values[i])
+		fmt.Printf("(%v)[%d]{", page.key, page.len)
+		for i := uint8(0); i < page.len; i++ {
+			if i == 0 {
+				fmt.Printf("%v", page.values[i])
 			} else {
-				fmt.Printf(",%v=%v", page.keys[i], page.values[i])
+				fmt.Printf(",%v", page.values[i])
 			}
 		}
 		fmt.Println("}")

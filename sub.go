@@ -22,8 +22,6 @@ type Subscription[T Message] struct {
 	receiver Receiver[T]
 	pos      int
 	status   uint8
-
-	readyTags []int
 }
 
 type Position struct {
@@ -51,7 +49,6 @@ func (s *Stream[T]) Sub(receiver Receiver[T], pos Position, tags ...string) *Sub
 	// TODO: check for laggard
 
 	if len(sub.tags) > 0 {
-		sub.readyTags = slices.Clone(sub.tags)
 		s.mx.Lock()
 		s.enqSub(sub)
 		s.mx.Unlock()
@@ -77,7 +74,7 @@ func (s *Stream[T]) ReSub(sub *Subscription[T], add, remove []string) {
 			s.idleSubs.Add(tagID, sub)
 			// s.idleSubs[tagID] = append(s.idleSubs[tagID], sub)
 		case Ready:
-			sub.readyTags = append(sub.readyTags, tagID)
+
 		default:
 			panic("unexpected")
 		}
@@ -94,7 +91,7 @@ func (s *Stream[T]) ReSub(sub *Subscription[T], add, remove []string) {
 			s.idleSubs.Del(tagID, sub)
 			// s.idleSubs[tagID], _ = deleteItem(s.idleSubs[tagID], sub)
 		case Ready:
-			sub.readyTags, _ = deleteItem(sub.readyTags, tagID)
+
 		default:
 			panic("unexpected")
 		}
@@ -111,7 +108,6 @@ func (s *Stream[T]) UnSub(sub *Subscription[T]) {
 		//})
 	}
 	sub.tags = nil
-	sub.readyTags = nil
 }
 
 func (s *Stream[T]) Newest() Position {

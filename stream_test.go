@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 	"time"
+	"unsafe"
 )
 
 type TestMessage struct {
@@ -17,6 +18,10 @@ type TestMessage struct {
 
 func (t *TestMessage) MessageTags() []string {
 	return t.Tags
+}
+
+func TestSizeOfSubscription(t *testing.T) {
+	fmt.Println(unsafe.Sizeof(Subscription[*TestMessage]{}))
 }
 
 func Test_Stream_PubSub(t *testing.T) {

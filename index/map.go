@@ -17,6 +17,16 @@ func (m *Map[K, V]) Del(key K, value V) {
 	m.data[key], _ = deleteItem(m.data[key], value)
 }
 
+func (m *Map[K, V]) Scan(key K, fn func(V)) {
+	items, ok := m.data[key]
+	if !ok || len(items) == 0 {
+		return
+	}
+	for _, value := range items {
+		fn(value)
+	}
+}
+
 func (m *Map[K, V]) Extract(key K, fn func(V)) {
 	items, ok := m.data[key]
 	if !ok || len(items) == 0 {
@@ -26,6 +36,7 @@ func (m *Map[K, V]) Extract(key K, fn func(V)) {
 		fn(value)
 	}
 	clear(items)
+	// delete(m.data, key)
 	m.data[key] = items[:0]
 }
 

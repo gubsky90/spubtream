@@ -41,15 +41,23 @@ func (s *Stream[T]) Pub(ctx context.Context, msg T) error {
 		tag := Encode(messageTag)
 		s.tags[tag] = append(s.tags[tag], msgID)
 
-		s.idleSubs.Extract(tag, func(sub *Subscription[T]) {
+		s.idleSubs.Scan(tag, func(sub *Subscription[T]) {
 			if sub.status != Idle {
-				sub.readyTags = append(sub.readyTags, tag)
 				return
 			}
 			sub.pos = msgID
-			sub.readyTags = append(sub.readyTags, tag)
 			s.enqReady(sub)
 		})
+
+		//s.idleSubs.Extract(tag, func(sub *Subscription[T]) {
+		//	if sub.status != Idle {
+		//		sub.readyTags = append(sub.readyTags, tag)
+		//		return
+		//	}
+		//	sub.pos = msgID
+		//	sub.readyTags = append(sub.readyTags, tag)
+		//	s.enqReady(sub)
+		//})
 
 		//for _, sub := range s.idleSubs[tag] {
 		//	if sub.status != Idle {

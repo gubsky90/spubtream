@@ -1,5 +1,7 @@
 package spubtream
 
+import "fmt"
+
 type Q[T any] struct {
 	offset int
 	items  []T
@@ -8,6 +10,7 @@ type Q[T any] struct {
 func (q *Q[T]) Enq(item T) {
 	if q.offset > 0 && len(q.items) == cap(q.items) {
 		n := copy(q.items, q.items[q.offset:])
+		clear(q.items[n:])
 		q.items = q.items[:n]
 		q.offset = 0
 	}
@@ -15,14 +18,19 @@ func (q *Q[T]) Enq(item T) {
 }
 
 func (q *Q[T]) Deq() T {
+	var zero T
 	item := q.items[q.offset]
+	q.items[q.offset] = zero
 	q.offset++
-	clear(q.items[q.offset-1 : q.offset])
 	return item
 }
 
 func (q *Q[T]) Empty() bool {
 	return len(q.items) == q.offset
+}
+
+func (q *Q[T]) Stats() string {
+	return fmt.Sprintf("{%d[%d:%d]}", q.offset, len(q.items), cap(q.items))
 }
 
 func (q *Q[T]) Len() int {

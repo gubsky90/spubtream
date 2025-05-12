@@ -4,12 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"math/rand"
 	"net/http"
 	"sync/atomic"
 	"time"
 
-	"github.com/gubsky90/spubtream"
+	"github.com/gubsky90/spubtream/way"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	_ "net/http/pprof"
@@ -32,11 +31,13 @@ func main() {
 		log.Fatal(http.ListenAndServe(":9100", nil))
 	}()
 
-	stream := spubtream.New[*TestMessage](context.Background()).
-		WithGCInterval(time.Millisecond * 1000).
-		WithWorkersLimit(1024 * 10).
-		WithBufferSizeLimit(10000).
-		Stream()
+	//stream := spubtream.New[*TestMessage](context.Background()).
+	//	WithGCInterval(time.Millisecond * 1000).
+	//	WithWorkersLimit(1024).
+	//	WithBufferSizeLimit(10000).
+	//	Stream()
+
+	stream := way.NewStream[*TestMessage]()
 
 	var received int64
 
@@ -44,7 +45,7 @@ func main() {
 	for i := 0; i < 1000000; i++ {
 		stream.SubFunc(func(_ context.Context, msg *TestMessage) error {
 			atomic.AddInt64(&received, 1)
-			time.Sleep(time.Duration(rand.Intn(10)) * time.Millisecond)
+			// time.Sleep(time.Duration(rand.Intn(10)) * time.Millisecond)
 			return nil
 		}, stream.Newest(),
 			"all",
@@ -56,7 +57,7 @@ func main() {
 	fmt.Println("Sub done", time.Since(ts))
 
 	var tags []string
-	tags = append(tags, "all")
+	// tags = append(tags, "all")
 	for i := 0; i < 10; i++ {
 		tags = append(tags, fmt.Sprintf("role#%d", i))
 	}
@@ -81,7 +82,7 @@ func main() {
 			atomic.AddInt64(&pubs, 1)
 			_ = stream.Pub(ctx, messages[p%len(messages)])
 			if p%len(messages) == 0 {
-				time.Sleep(time.Second * 30)
+				time.Sleep(time.Second * 10)
 			}
 		}
 	}()
