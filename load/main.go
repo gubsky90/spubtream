@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"sync/atomic"
 	"time"
 
 	"github.com/gubsky90/spubtream/way"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	_ "net/http/pprof"
@@ -25,7 +25,39 @@ func (t *TestMessage) MessageTags() []string {
 	return t.Tags
 }
 
+func metrics(fn func() way.Stats) {
+	messages := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "spubtream_messages",
+	})
+	subscriptions := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "spubtream_subscriptions",
+	})
+	published := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "spubtream_published",
+	})
+	received := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "spubtream_received",
+	})
+
+	prometheus.DefaultRegisterer.MustRegister(
+		messages,
+		subscriptions,
+		published,
+		received,
+	)
+
+	for {
+		time.Sleep(time.Second)
+		stats := fn()
+		messages.Set(float64(stats.Messages))
+		subscriptions.Set(float64(stats.Subscriptions))
+		published.Set(float64(stats.Published))
+		received.Set(float64(stats.Received))
+	}
+}
+
 func main() {
+
 	go func() {
 		http.Handle("/metrics", promhttp.Handler())
 		log.Fatal(http.ListenAndServe(":9100", nil))
@@ -38,13 +70,11 @@ func main() {
 	//	Stream()
 
 	stream := way.NewStream[*TestMessage]()
-
-	var received int64
+	go metrics(stream.Stats)
 
 	ts := time.Now()
 	for i := 0; i < 1000000; i++ {
 		stream.SubFunc(func(_ context.Context, msg *TestMessage) error {
-			atomic.AddInt64(&received, 1)
 			// time.Sleep(time.Duration(rand.Intn(10)) * time.Millisecond)
 			return nil
 		}, stream.Newest(),
@@ -57,7 +87,7 @@ func main() {
 	fmt.Println("Sub done", time.Since(ts))
 
 	var tags []string
-	// tags = append(tags, "all")
+	tags = append(tags, "all")
 	for i := 0; i < 10; i++ {
 		tags = append(tags, fmt.Sprintf("role#%d", i))
 	}
@@ -73,25 +103,17 @@ func main() {
 		messages[i] = &TestMessage{Tags: []string{tag}}
 	}
 
-	var pubs int64
 	go func() {
 		p := 0
 		ctx := context.Background()
 		for {
 			p++
-			atomic.AddInt64(&pubs, 1)
 			_ = stream.Pub(ctx, messages[p%len(messages)])
-			if p%len(messages) == 0 {
-				time.Sleep(time.Second * 10)
-			}
+			//if p%len(messages) == 0 {
+			//	time.Sleep(time.Second * 10)
+			//}
 		}
 	}()
 
-	for i := 0; i < 10000; i++ {
-		time.Sleep(time.Second)
-		fmt.Println(
-			"pubs", atomic.SwapInt64(&pubs, 0),
-			"received", atomic.SwapInt64(&received, 0),
-		)
-	}
+	time.Sleep(time.Hour)
 }
