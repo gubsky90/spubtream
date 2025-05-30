@@ -5,100 +5,96 @@ import (
 	"sync"
 )
 
-type Message interface {
-	MessageTags() []string
-}
-
-type Receiver[T Message] interface {
-	Receive(ctx context.Context, message T) error
-}
-
-type Subscription[T Message] struct {
-	next     *Subscription[T]
+type Subscription[R comparable] struct {
+	next     *Subscription[R]
 	offset   int
-	receiver Receiver[T]
+	receiver R
 	tagIDs   []int
 }
 
-type IndexItem[T Message] struct {
-	subs   []*Subscription[T]
+type IndexItem[R comparable] struct {
+	subs   []*Subscription[R]
 	msgIDs []int
 }
 
-type Task[T Message] struct {
-	sub *Subscription[T]
-	msg T
+type Task[M any, R comparable] struct {
+	sub *Subscription[R]
+	msg M
 	err error
 }
 
-type ReSub[T Message] struct {
-	sub    *Subscription[T]
-	add    []string
-	remove []string
+type ReSub[R comparable] struct {
+	receiver R
+	add      []string
+	remove   []string
 }
 
-type Stream[T Message] struct {
+type Stream[M any, R comparable] struct {
 	wg sync.WaitGroup
 
 	offset   int
-	messages []T
+	messages []M
 	used     []int
-	index    map[int]IndexItem[T]
+	index    map[int]IndexItem[R]
 
-	head *Subscription[T]
-	tail *Subscription[T]
+	head *Subscription[R]
+	tail *Subscription[R]
 
-	sub     chan *Subscription[T]
-	resub   chan ReSub[T]
-	unsub   chan *Subscription[T]
-	pub     chan T
-	process chan Task[T]
-	done    chan Task[T]
+	sub     chan *Subscription[R]
+	resub   chan ReSub[R]
+	unsub   chan R
+	pub     chan Pub[M]
+	process chan Task[M, R]
+	done    chan Task[M, R]
 
 	requestStats chan chan Stats
 	stats        Stats
 }
 
-func (stream *Stream[T]) Pub(ctx context.Context, msg T) error {
+type Pub[M any] struct {
+	msg  M
+	tags []string
+}
+
+func (stream *Stream[M, R]) Pub(ctx context.Context, msg M, tags ...string) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case stream.pub <- msg:
+	case stream.pub <- Pub[M]{msg: msg, tags: tags}:
 		return nil
 	}
 }
 
-func (stream *Stream[T]) Sub(receiver Receiver[T], offset int, tags ...string) *Subscription[T] {
-	sub := &Subscription[T]{
+func (stream *Stream[M, R]) Sub(receiver R, offset int, tags ...string) {
+	sub := &Subscription[R]{
 		offset:   offset,
 		receiver: receiver,
 		tagIDs:   EncodeAll(tags...),
 	}
 	stream.sub <- sub
-	return sub
 }
 
-func (stream *Stream[T]) UnSub(sub *Subscription[T]) {
-	stream.unsub <- sub
+func (stream *Stream[M, R]) UnSub(receiver R) {
+	stream.unsub <- receiver
 }
 
-func (stream *Stream[T]) ReSub(sub *Subscription[T], add, remove []string) {
-	stream.resub <- ReSub[T]{
-		sub:    sub,
-		add:    add,
-		remove: remove,
+func (stream *Stream[M, R]) ReSub(receiver R, add, remove []string) {
+	stream.resub <- ReSub[R]{
+		receiver: receiver,
+		add:      add,
+		remove:   remove,
 	}
 }
 
-func (stream *Stream[T]) WaitWorkers() {
+func (stream *Stream[M, R]) WaitWorkers() {
 	stream.wg.Wait()
 }
 
-func (stream *Stream[T]) selectTask() (Task[T], bool) {
+func (stream *Stream[M, R]) selectTask() (Task[M, R], bool) {
 repeat:
 	sub := stream.tail
 	if sub == nil {
-		return Task[T]{}, false
+		return Task[M, R]{}, false
 	}
 
 	msgIDx := sub.offset - stream.offset
@@ -113,22 +109,21 @@ repeat:
 	}
 
 	if sub.tagIDs == nil { // unsubscribed
-		sub.receiver = nil
-		sub.next = nil
+		//*sub = Subscription[R]{}
 		goto repeat
 	}
 
-	return Task[T]{
+	return Task[M, R]{
 		sub: sub,
 		msg: msg,
 	}, true
 }
 
-func (stream *Stream[T]) inQ(sub *Subscription[T]) bool {
+func (stream *Stream[M, R]) inQ(sub *Subscription[R]) bool {
 	return sub.next != nil
 }
 
-func (stream *Stream[T]) reQ(sub *Subscription[T]) bool {
+func (stream *Stream[M, R]) reQ(sub *Subscription[R]) bool {
 	if pos, end := stream.nextPos(sub.tagIDs, sub.offset); !end {
 		sub.offset = pos
 		stream.enQ(sub)
@@ -138,9 +133,8 @@ func (stream *Stream[T]) reQ(sub *Subscription[T]) bool {
 	return false
 }
 
-func (stream *Stream[T]) enQ(sub *Subscription[T]) {
+func (stream *Stream[M, R]) enQ(sub *Subscription[R]) {
 	stream.used[sub.offset-stream.offset]++
-
 	if stream.tail == nil {
 		stream.tail = sub
 		stream.head = sub
@@ -150,7 +144,7 @@ func (stream *Stream[T]) enQ(sub *Subscription[T]) {
 	stream.head = sub
 }
 
-func (stream *Stream[T]) nextPos(tags []int, pos int) (int, bool) {
+func (stream *Stream[M, R]) nextPos(tags []int, pos int) (int, bool) {
 	streamHead := stream.offset + len(stream.messages)
 	head := streamHead
 	for _, tag := range tags {
@@ -159,7 +153,7 @@ func (stream *Stream[T]) nextPos(tags []int, pos int) (int, bool) {
 	return head, head == streamHead
 }
 
-func (stream *Stream[T]) handleSub(sub *Subscription[T]) bool {
+func (stream *Stream[M, R]) handleSub(sub *Subscription[R]) bool {
 	ok := stream.reQ(sub)
 	for _, tagID := range sub.tagIDs {
 		indexItem := stream.index[tagID]
@@ -169,7 +163,22 @@ func (stream *Stream[T]) handleSub(sub *Subscription[T]) bool {
 	return ok
 }
 
-func (stream *Stream[T]) handleUnSub(sub *Subscription[T]) {
+func (stream *Stream[M, R]) subByReceiver(receiver R) *Subscription[R] {
+	for _, item := range stream.index {
+		for _, sub := range item.subs {
+			if sub.receiver == receiver {
+				return sub
+			}
+		}
+	}
+	return nil
+}
+
+func (stream *Stream[M, R]) handleUnSub(receiver R) {
+	sub := stream.subByReceiver(receiver)
+	if sub == nil {
+		return
+	}
 	for _, tagID := range sub.tagIDs {
 		indexItem := stream.index[tagID]
 		indexItem.subs, _ = deleteItem(indexItem.subs, sub)
@@ -178,35 +187,35 @@ func (stream *Stream[T]) handleUnSub(sub *Subscription[T]) {
 	sub.tagIDs = nil
 }
 
-func (stream *Stream[T]) handleReSub(sub *Subscription[T], add, remove []string) {
-	var ok bool
-	for _, tag := range add {
-		tagID := Encode(tag)
-		if sub.tagIDs, ok = addItem(sub.tagIDs, tagID); !ok {
-			continue
-		}
-		indexItem := stream.index[tagID]
-		indexItem.subs = append(indexItem.subs, sub)
-		stream.index[tagID] = indexItem
-	}
-	for _, tag := range remove {
-		tagID := Encode(tag)
-		if sub.tagIDs, ok = deleteItem(sub.tagIDs, tagID); !ok {
-			continue
-		}
-		indexItem := stream.index[tagID]
-		indexItem.subs, _ = deleteItem(indexItem.subs, sub)
-		stream.index[tagID] = indexItem
-	}
+func (stream *Stream[M, R]) handleReSub(receiver R, add, remove []string) {
+	//var ok bool
+	//for _, tag := range add {
+	//	tagID := Encode(tag)
+	//	if sub.tagIDs, ok = addItem(sub.tagIDs, tagID); !ok {
+	//		continues
+	//	}
+	//	indexItem := stream.index[tagID]
+	//	indexItem.subs = append(indexItem.subs, sub)
+	//	stream.index[tagID] = indexItem
+	//}
+	//for _, tag := range remove {
+	//	tagID := Encode(tag)
+	//	if sub.tagIDs, ok = deleteItem(sub.tagIDs, tagID); !ok {
+	//		continue
+	//	}
+	//	indexItem := stream.index[tagID]
+	//	indexItem.subs, _ = deleteItem(indexItem.subs, sub)
+	//	stream.index[tagID] = indexItem
+	//}
 }
 
-func (stream *Stream[T]) handlePub(msg T) bool {
+func (stream *Stream[M, R]) handlePub(msg M, tags []string) bool {
 	msgID := stream.offset + len(stream.messages)
 	stream.messages = append(stream.messages, msg)
 	stream.used = append(stream.used, 0)
 
 	var ok bool
-	for _, tag := range msg.MessageTags() {
+	for _, tag := range tags {
 		tagID := Encode(tag)
 
 		indexItem := stream.index[tagID]
@@ -226,22 +235,24 @@ func (stream *Stream[T]) handlePub(msg T) bool {
 
 const WORKERS = 128
 
-func NewStream[T Message]() *Stream[T] {
-	stream := Stream[T]{
-		index:        map[int]IndexItem[T]{},
-		sub:          make(chan *Subscription[T]),
-		resub:        make(chan ReSub[T]),
-		unsub:        make(chan *Subscription[T]),
-		pub:          make(chan T),
-		process:      make(chan Task[T]),
-		done:         make(chan Task[T]),
+type ConsumerFunc[M any, R comparable] func(ctx context.Context, receiver R, msg M) error
+
+func NewStream[M any, R comparable](consumerFunc ConsumerFunc[M, R]) *Stream[M, R] {
+	stream := Stream[M, R]{
+		index:        map[int]IndexItem[R]{},
+		sub:          make(chan *Subscription[R]),
+		resub:        make(chan ReSub[R]),
+		unsub:        make(chan R),
+		pub:          make(chan Pub[M]),
+		process:      make(chan Task[M, R]),
+		done:         make(chan Task[M, R]),
 		requestStats: make(chan chan Stats),
 	}
 
 	for i := 0; i < WORKERS; i++ {
 		go func() {
 			for task := range stream.process {
-				task.err = task.sub.receiver.Receive(context.TODO(), task.msg)
+				task.err = consumerFunc(context.TODO(), task.sub.receiver, task.msg)
 				stream.done <- task
 			}
 		}()

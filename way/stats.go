@@ -7,7 +7,7 @@ type Stats struct {
 	Received      int
 }
 
-func (stream *Stream[T]) Stats() Stats {
+func (stream *Stream[M, R]) Stats() Stats {
 	req := make(chan Stats)
 	stream.requestStats <- req
 	return <-req

@@ -8,54 +8,46 @@ import (
 	"unsafe"
 )
 
-type TestMessage struct {
-	ID   int
-	Tags []string
-}
-
-func (msg *TestMessage) MessageTags() []string {
-	return msg.Tags
-}
-
-type TestReceiver struct {
-	ID     int
-	Silent bool
-	Delay  time.Duration
-}
-
-func (r *TestReceiver) Receive(ctx context.Context, msg *TestMessage) error {
-	if r.Silent {
-		return nil
-	}
-	if r.Delay != 0 {
-		time.Sleep(r.Delay)
-	}
-	fmt.Printf("[Receive][%d] %d %v\n", r.ID, msg.ID, msg.Tags)
-	return nil
-}
-
 func TestSizeOfSubscription(t *testing.T) {
-	fmt.Println(unsafe.Sizeof(Subscription[*TestMessage]{}))
+	fmt.Println(unsafe.Sizeof(Subscription[*int]{}))
+}
+
+type Client struct {
+	ID int
+}
+
+type Handler struct {
+}
+
+func (h *Handler) OnMsg1(ctx context.Context, client *Client, msg string) error {
+	fmt.Println("[OnMsg1]", client, msg)
+	return nil
 }
 
 func Test_Stream(t *testing.T) {
 	ctx := context.Background()
 	_ = ctx
 
-	stream := NewStream[*TestMessage]()
+	c1 := &Client{ID: 1}
+	c2 := &Client{ID: 2}
 
-	onStep = func() {
-		printStream(stream)
-		fmt.Println()
-	}
+	h := &Handler{}
 
-	stream.Pub(ctx, &TestMessage{ID: 1, Tags: []string{"one"}})
-	stream.Pub(ctx, &TestMessage{ID: 2, Tags: []string{"one"}})
-	stream.Pub(ctx, &TestMessage{ID: 3, Tags: []string{"one"}})
-	// stream.Pub(ctx, &TestMessage{ID: 2, Tags: []string{"one"}})
-	// stream.Pub(ctx, &TestMessage{ID: 3, Tags: []string{"one"}})
+	stream := NewStream(h.OnMsg1)
 
-	stream.Sub(&TestReceiver{ID: 1, Delay: time.Second}, -1, "one")
+	//onStep = func() {
+	//	printStream(stream)
+	//	fmt.Println()
+	//}
+
+	stream.Pub(ctx, "msg1", "one")
+	stream.Pub(ctx, "msg2", "one")
+	stream.Pub(ctx, "msg3", "one")
+
+	stream.Sub(c1, -1, "one")
+	stream.Sub(c2, -1, "one")
+
+	stream.UnSub(c1)
 
 	// stream.WaitWorkers()
 	// printStream(stream)
@@ -69,36 +61,7 @@ func Test_Stream(t *testing.T) {
 	time.Sleep(time.Second * 5)
 }
 
-//func Benchmark_Stream_step(b *testing.B) {
-//	ctx := context.Background()
-//	stream := NewStream[*TestMessage]()
-//
-//	for i := 0; i < 1000000; i++ {
-//		stream.Sub(&TestReceiver{ID: i, Silent: true}, 0,
-//			fmt.Sprintf("user%d", i%100000),
-//			fmt.Sprintf("role%d", i%1000),
-//			"all",
-//		)
-//	}
-//
-//	for i := 0; i < 100000; i++ {
-//		stream.Pub(ctx, &TestMessage{ID: i, Tags: []string{fmt.Sprintf("user%d", i)}})
-//	}
-//	for i := 0; i < 1000; i++ {
-//		stream.Pub(ctx, &TestMessage{ID: i, Tags: []string{fmt.Sprintf("role%d", i)}})
-//	}
-//	for i := 0; i < 100; i++ {
-//		stream.Pub(ctx, &TestMessage{ID: i, Tags: []string{"all"}})
-//	}
-//
-//	b.ReportAllocs()
-//	b.ResetTimer()
-//	for i := 0; i < b.N; i++ {
-//		_, _, _ = stream.step()
-//	}
-//}
-
-func printStream[T Message](stream *Stream[T]) {
+func printStream[M any, R comparable](stream *Stream[M, R]) {
 	fmt.Printf("head: %s\n", stream.head)
 	fmt.Printf("tail: %s\n", stream.tail)
 	fmt.Printf("used: %v\n", stream.used)

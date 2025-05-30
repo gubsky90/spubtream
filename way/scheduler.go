@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-func (stream *Stream[T]) gc(fn func(messages []T) int) {
+func (stream *Stream[M, R]) gc(fn func(messages []M) int) {
 	if len(stream.messages) == 0 {
 		return
 	}
@@ -71,9 +71,9 @@ func (stream *Stream[T]) gc(fn func(messages []T) int) {
 	//)
 }
 
-func (stream *Stream[T]) chanWorker() {
-	var process chan Task[T]
-	var readyTask Task[T]
+func (stream *Stream[M, R]) chanWorker() {
+	var process chan Task[M, R]
+	var readyTask Task[M, R]
 
 	selectTask := func() {
 		var ok bool
@@ -95,7 +95,7 @@ func (stream *Stream[T]) chanWorker() {
 		case req := <-stream.requestStats:
 			req <- stream.stats
 		case <-gc.C:
-			stream.gc(func(messages []T) int {
+			stream.gc(func(messages []M) int {
 				return len(messages)
 			})
 
@@ -104,26 +104,22 @@ func (stream *Stream[T]) chanWorker() {
 			}
 
 		case resub := <-stream.resub:
-			stream.handleReSub(resub.sub, resub.add, resub.remove)
-		case sub := <-stream.unsub:
-			stream.handleUnSub(sub)
+			stream.handleReSub(resub.receiver, resub.add, resub.remove)
+		case receiver := <-stream.unsub:
+			stream.handleUnSub(receiver)
 		case sub := <-stream.sub:
 			stream.stats.Subscriptions++
-
 			if stream.handleSub(sub) && process == nil {
 				selectTask()
 			}
 		case msg := <-pub:
 			stream.stats.Published++
-
-			if stream.handlePub(msg) && process == nil {
+			if stream.handlePub(msg.msg, msg.tags) && process == nil {
 				selectTask()
 			}
-
 			if len(stream.messages) == messagesLimit {
 				pub = nil
 			}
-
 		case task := <-stream.done:
 			// handle task.err
 
@@ -132,8 +128,8 @@ func (stream *Stream[T]) chanWorker() {
 			stream.used[task.sub.offset-stream.offset]--
 
 			if task.sub.tagIDs == nil { // unsubscribed
-				task.sub.receiver = nil
-				task.sub.next = nil
+				//*task.sub = Subscription[R]{}
+				//task = Task[M, R]{}
 			} else if stream.reQ(task.sub) && process == nil {
 				selectTask()
 			}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"time"
 
@@ -56,28 +57,31 @@ func metrics(fn func() way.Stats) {
 	}
 }
 
-func main() {
+type Consumer struct {
+}
 
+type Client struct {
+}
+
+func (c *Consumer) OnMessage(ctx context.Context, client *Client, msg *TestMessage) error {
+	time.Sleep(time.Duration(rand.Intn(10)) * time.Millisecond)
+	return nil
+}
+
+func main() {
 	go func() {
 		http.Handle("/metrics", promhttp.Handler())
 		log.Fatal(http.ListenAndServe(":9100", nil))
 	}()
 
-	//stream := spubtream.New[*TestMessage](context.Background()).
-	//	WithGCInterval(time.Millisecond * 1000).
-	//	WithWorkersLimit(1024).
-	//	WithBufferSizeLimit(10000).
-	//	Stream()
+	consumer := &Consumer{}
 
-	stream := way.NewStream[*TestMessage]()
+	stream := way.NewStream[*TestMessage](consumer.OnMessage)
 	go metrics(stream.Stats)
 
 	ts := time.Now()
 	for i := 0; i < 1000000; i++ {
-		stream.SubFunc(func(_ context.Context, msg *TestMessage) error {
-			// time.Sleep(time.Duration(rand.Intn(10)) * time.Millisecond)
-			return nil
-		}, stream.Newest(),
+		stream.Sub(&Client{}, 0,
 			"all",
 			fmt.Sprintf("role#%d", i%10),
 			fmt.Sprintf("user#%d", i%100000),
@@ -108,7 +112,8 @@ func main() {
 		ctx := context.Background()
 		for {
 			p++
-			_ = stream.Pub(ctx, messages[p%len(messages)])
+			msg := messages[p%len(messages)]
+			_ = stream.Pub(ctx, msg, msg.Tags...)
 			//if p%len(messages) == 0 {
 			//	time.Sleep(time.Second * 10)
 			//}
