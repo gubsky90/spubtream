@@ -180,43 +180,43 @@ func (stream *Stream[M, R]) handleSub(s Sub[R]) bool {
 	return ok
 }
 
-func (stream *Stream[M, R]) subByReceiver(receiver R) *Subscription[R] {
-	return stream.receivers[receiver]
-}
-
 func (stream *Stream[M, R]) handleUnSub(receiver R) {
-	//sub := stream.subByReceiver(receiver)
+	sub := stream.receivers[receiver]
 	//if sub == nil {
 	//	return
 	//}
-	//for _, tagID := range sub.tagIDs {
-	//	indexItem := stream.index[tagID]
-	//	indexItem.subs, _ = deleteItem(indexItem.subs, sub)
-	//	stream.index[tagID] = indexItem
-	//}
-	//sub.tagIDs = nil
+	for _, tagID := range sub.tagIDs {
+		indexItem := stream.index[tagID]
+		indexItem.receivers, _ = deleteItem(indexItem.receivers, receiver)
+		stream.index[tagID] = indexItem
+	}
+	sub.tagIDs = nil
 }
 
 func (stream *Stream[M, R]) handleReSub(receiver R, add, remove []string) {
-	//var ok bool
-	//for _, tag := range add {
-	//	tagID := Encode(tag)
-	//	if sub.tagIDs, ok = addItem(sub.tagIDs, tagID); !ok {
-	//		continues
-	//	}
-	//	indexItem := stream.index[tagID]
-	//	indexItem.subs = append(indexItem.subs, sub)
-	//	stream.index[tagID] = indexItem
+	var ok bool
+	sub := stream.receivers[receiver]
+	//if sub == nil {
+	//	return
 	//}
-	//for _, tag := range remove {
-	//	tagID := Encode(tag)
-	//	if sub.tagIDs, ok = deleteItem(sub.tagIDs, tagID); !ok {
-	//		continue
-	//	}
-	//	indexItem := stream.index[tagID]
-	//	indexItem.subs, _ = deleteItem(indexItem.subs, sub)
-	//	stream.index[tagID] = indexItem
-	//}
+	for _, tag := range add {
+		tagID := Encode(tag)
+		if sub.tagIDs, ok = addItem(sub.tagIDs, tagID); !ok {
+			continue
+		}
+		indexItem := stream.index[tagID]
+		indexItem.receivers = append(indexItem.receivers, receiver)
+		stream.index[tagID] = indexItem
+	}
+	for _, tag := range remove {
+		tagID := Encode(tag)
+		if sub.tagIDs, ok = deleteItem(sub.tagIDs, tagID); !ok {
+			continue
+		}
+		indexItem := stream.index[tagID]
+		indexItem.receivers, _ = deleteItem(indexItem.receivers, receiver)
+		stream.index[tagID] = indexItem
+	}
 }
 
 func (stream *Stream[M, R]) handlePub(msg M, tags []string) bool {

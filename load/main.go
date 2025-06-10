@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	way "github.com/gubsky90/spubtream/way"
+	way "github.com/gubsky90/spubtream/way2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
