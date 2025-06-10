@@ -4,11 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"math/rand"
 	"net/http"
 	"time"
 
-	"github.com/gubsky90/spubtream/way"
+	way "github.com/gubsky90/spubtream/way"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
@@ -39,12 +38,16 @@ func metrics(fn func() way.Stats) {
 	received := prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "spubtream_received",
 	})
+	selected := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "spubtream_selected",
+	})
 
 	prometheus.DefaultRegisterer.MustRegister(
 		messages,
 		subscriptions,
 		published,
 		received,
+		selected,
 	)
 
 	for {
@@ -61,10 +64,11 @@ type Consumer struct {
 }
 
 type Client struct {
+	ID int
 }
 
 func (c *Consumer) OnMessage(ctx context.Context, client *Client, msg *TestMessage) error {
-	time.Sleep(time.Duration(rand.Intn(10)) * time.Millisecond)
+	// time.Sleep(time.Duration(rand.Intn(10)) * time.Millisecond)
 	return nil
 }
 
