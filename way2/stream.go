@@ -2,8 +2,10 @@ package way
 
 import (
 	"context"
-	"sync"
+	"errors"
 )
+
+var ErrClosed = errors.New("stream closed")
 
 type Subscription[R comparable] struct {
 	next   R
@@ -20,7 +22,6 @@ type Task[M any, R comparable] struct {
 	sub      *Subscription[R]
 	receiver R
 	msg      M
-	err      error
 }
 
 type ReSub[R comparable] struct {
@@ -30,31 +31,27 @@ type ReSub[R comparable] struct {
 }
 
 type Stream[M any, R comparable] struct {
-	wg sync.WaitGroup
-
+	offset    int
+	messages  []M
+	used      []int
+	index     map[int]IndexItem[R]
 	receivers map[R]*Subscription[R]
+	stats     Stats
+	head      R
+	tail      R
 
-	offset   int
-	messages []M
-	used     []int
-	index    map[int]IndexItem[R]
-
-	head R
-	tail R
-
-	sub     chan Sub[R]
-	resub   chan ReSub[R]
-	unsub   chan R
-	pub     chan Pub[M]
-	process chan Task[M, R]
-	done    chan Task[M, R]
-
+	sub          chan Sub[M, R]
+	resub        chan ReSub[R]
+	unsub        chan R
+	pub          chan Pub[M]
+	process      chan Task[M, R]
+	done         chan Task[M, R]
 	requestStats chan chan Stats
-	stats        Stats
 }
 
-type Sub[R comparable] struct {
-	offset   int
+type Sub[M any, R comparable] struct {
+	done     chan error
+	pos      Positioner[M]
 	tagIDs   []int
 	receiver R
 }
@@ -73,12 +70,15 @@ func (stream *Stream[M, R]) Pub(ctx context.Context, msg M, tags ...string) erro
 	}
 }
 
-func (stream *Stream[M, R]) Sub(receiver R, offset int, tags ...string) {
-	stream.sub <- Sub[R]{
-		offset:   offset,
+func (stream *Stream[M, R]) Sub(receiver R, pos Positioner[M], tags ...string) error {
+	done := make(chan error)
+	stream.sub <- Sub[M, R]{
+		done:     done,
+		pos:      pos,
 		tagIDs:   EncodeAll(tags...),
 		receiver: receiver,
 	}
+	return <-done
 }
 
 func (stream *Stream[M, R]) UnSub(receiver R) {
@@ -93,21 +93,14 @@ func (stream *Stream[M, R]) ReSub(receiver R, add, remove []string) {
 	}
 }
 
-func (stream *Stream[M, R]) WaitWorkers() {
-	stream.wg.Wait()
-}
-
 func (stream *Stream[M, R]) selectTask() (Task[M, R], bool) {
 repeat:
-	if IsZero(stream.tail) {
+	if stream.tail == Zero[R]() {
 		return Task[M, R]{}, false
 	}
 
 	receiver := stream.tail
 	sub := stream.receivers[receiver]
-
-	msgIDx := sub.offset - stream.offset
-	msg := stream.messages[msgIDx]
 
 	if sub.next == receiver {
 		stream.tail = Zero[R]()
@@ -122,6 +115,10 @@ repeat:
 		goto repeat
 	}
 
+	msgIDx := sub.offset - stream.offset
+	msg := stream.messages[msgIDx]
+	stream.used[msgIDx]--
+
 	return Task[M, R]{
 		receiver: receiver,
 		sub:      sub,
@@ -130,7 +127,7 @@ repeat:
 }
 
 func (stream *Stream[M, R]) inQ(sub *Subscription[R]) bool {
-	return !IsZero(sub.next)
+	return sub.next != Zero[R]()
 }
 
 func (stream *Stream[M, R]) reQ(receiver R, sub *Subscription[R]) bool {
@@ -145,7 +142,7 @@ func (stream *Stream[M, R]) reQ(receiver R, sub *Subscription[R]) bool {
 
 func (stream *Stream[M, R]) enQ(receiver R, sub *Subscription[R]) {
 	stream.used[sub.offset-stream.offset]++
-	if IsZero(stream.tail) {
+	if stream.tail == Zero[R]() {
 		stream.tail = receiver
 		stream.head = receiver
 	}
@@ -163,18 +160,18 @@ func (stream *Stream[M, R]) nextPos(tags []int, pos int) (int, bool) {
 	return head, head == streamHead
 }
 
-func (stream *Stream[M, R]) handleSub(s Sub[R]) bool {
+func (stream *Stream[M, R]) handleSub(receiver R, offset int, tagIDs []int) bool {
 	sub := &Subscription[R]{
-		offset: s.offset,
-		tagIDs: s.tagIDs,
+		offset: stream.offset + offset,
+		tagIDs: tagIDs,
 	}
 
-	stream.receivers[s.receiver] = sub
+	stream.receivers[receiver] = sub
 
-	ok := stream.reQ(s.receiver, sub)
+	ok := stream.reQ(receiver, sub)
 	for _, tagID := range sub.tagIDs {
 		indexItem := stream.index[tagID]
-		indexItem.receivers = append(indexItem.receivers, s.receiver)
+		indexItem.receivers = append(indexItem.receivers, receiver)
 		stream.index[tagID] = indexItem
 	}
 	return ok
@@ -244,31 +241,17 @@ func (stream *Stream[M, R]) handlePub(msg M, tags []string) bool {
 	return ok
 }
 
-const WORKERS = 128
-
-type ConsumerFunc[M any, R comparable] func(ctx context.Context, receiver R, msg M) error
-
-func NewStream[M any, R comparable](consumerFunc ConsumerFunc[M, R]) *Stream[M, R] {
+func NewStream[M any, R comparable]() *Stream[M, R] {
 	stream := Stream[M, R]{
-		receivers: map[R]*Subscription[R]{},
-
+		receivers:    map[R]*Subscription[R]{},
 		index:        map[int]IndexItem[R]{},
-		sub:          make(chan Sub[R]),
+		sub:          make(chan Sub[M, R]),
 		resub:        make(chan ReSub[R]),
 		unsub:        make(chan R),
 		pub:          make(chan Pub[M]),
 		process:      make(chan Task[M, R]),
 		done:         make(chan Task[M, R]),
 		requestStats: make(chan chan Stats),
-	}
-
-	for i := 0; i < WORKERS; i++ {
-		go func() {
-			for task := range stream.process {
-				task.err = consumerFunc(context.TODO(), task.receiver, task.msg)
-				stream.done <- task
-			}
-		}()
 	}
 
 	go stream.chanWorker()

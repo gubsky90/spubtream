@@ -1,33 +1,18 @@
 package way
 
 import (
-	"fmt"
 	"slices"
 	"sort"
 )
 
-func Zero[T any]() T {
-	var zero T
-	return zero
-}
-
-func IsZero[T comparable](value T) bool {
-	var zero T
-	return value == zero
-}
-
-func (sub *Subscription[T]) String() string {
-	var next string
-	if IsZero(sub.next) {
-		next = "<nil>"
-	} else {
-		next = fmt.Sprint(sub.next)
-	}
-	return fmt.Sprintf("_ (offset: %d; next: %s)", sub.offset, next)
+func Zero[T any]() (zero T) {
+	return
 }
 
 func searchPos(pos, head int, items []int) int {
-	n := sort.Search(len(items), func(i int) bool { return items[i] > pos })
+	n := sort.Search(len(items), func(i int) bool {
+		return items[i] > pos
+	})
 	if n < len(items) && items[n] < head {
 		return items[n]
 	}

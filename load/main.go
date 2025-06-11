@@ -7,11 +7,11 @@ import (
 	"net/http"
 	"time"
 
+	_ "net/http/pprof"
+
 	way "github.com/gubsky90/spubtream/way2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-
-	_ "net/http/pprof"
 )
 
 type TestMessage struct {
@@ -25,41 +25,6 @@ func (t *TestMessage) MessageTags() []string {
 	return t.Tags
 }
 
-func metrics(fn func() way.Stats) {
-	messages := prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "spubtream_messages",
-	})
-	subscriptions := prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "spubtream_subscriptions",
-	})
-	published := prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "spubtream_published",
-	})
-	received := prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "spubtream_received",
-	})
-	selected := prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "spubtream_selected",
-	})
-
-	prometheus.DefaultRegisterer.MustRegister(
-		messages,
-		subscriptions,
-		published,
-		received,
-		selected,
-	)
-
-	for {
-		time.Sleep(time.Second)
-		stats := fn()
-		messages.Set(float64(stats.Messages))
-		subscriptions.Set(float64(stats.Subscriptions))
-		published.Set(float64(stats.Published))
-		received.Set(float64(stats.Received))
-	}
-}
-
 type Consumer struct {
 }
 
@@ -67,9 +32,8 @@ type Client struct {
 	ID int
 }
 
-func (c *Consumer) OnMessage(ctx context.Context, client *Client, msg *TestMessage) error {
+func (c *Consumer) OnMessage(client *Client, msg *TestMessage) {
 	// time.Sleep(time.Duration(rand.Intn(10)) * time.Millisecond)
-	return nil
 }
 
 func main() {
@@ -80,12 +44,13 @@ func main() {
 
 	consumer := &Consumer{}
 
-	stream := way.NewStream[*TestMessage](consumer.OnMessage)
+	stream := way.NewStream[*TestMessage, *Client]()
+	stream.Start(consumer.OnMessage)
 	go metrics(stream.Stats)
 
 	ts := time.Now()
 	for i := 0; i < 1000000; i++ {
-		stream.Sub(&Client{}, 0,
+		_ = stream.Sub(&Client{}, stream.Last,
 			"all",
 			fmt.Sprintf("role#%d", i%10),
 			fmt.Sprintf("user#%d", i%100000),
@@ -125,4 +90,39 @@ func main() {
 	}()
 
 	time.Sleep(time.Hour)
+}
+
+func metrics(fn func() way.Stats) {
+	messages := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "spubtream_messages",
+	})
+	subscriptions := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "spubtream_subscriptions",
+	})
+	published := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "spubtream_published",
+	})
+	received := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "spubtream_received",
+	})
+	selected := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "spubtream_selected",
+	})
+
+	prometheus.DefaultRegisterer.MustRegister(
+		messages,
+		subscriptions,
+		published,
+		received,
+		selected,
+	)
+
+	for {
+		time.Sleep(time.Second)
+		stats := fn()
+		messages.Set(float64(stats.Messages))
+		subscriptions.Set(float64(stats.Subscriptions))
+		published.Set(float64(stats.Published))
+		received.Set(float64(stats.Received))
+	}
 }

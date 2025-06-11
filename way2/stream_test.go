@@ -17,11 +17,11 @@ type Client struct {
 }
 
 type Handler struct {
+	stream *Stream[string, *Client]
 }
 
-func (h *Handler) OnMsg1(ctx context.Context, client *Client, msg string) error {
+func (h *Handler) OnMsg1(client *Client, msg string) {
 	fmt.Println("[OnMsg1]", client, msg)
-	return nil
 }
 
 func Test_SizeOf_Subscription(t *testing.T) {
@@ -29,23 +29,44 @@ func Test_SizeOf_Subscription(t *testing.T) {
 	fmt.Println(unsafe.Sizeof(s))
 }
 
+func Test_Stream_offset(t *testing.T) {
+	ctx := context.Background()
+	stream := NewStream[string, *Client]()
+
+	stream.Pub(ctx, "t1_1", "t1")
+	stream.Pub(ctx, "t1_2", "t1")
+	stream.Pub(ctx, "t1_3", "t1")
+
+	stream.Pub(ctx, "t2_1", "t2")
+	stream.Pub(ctx, "t2_2", "t2")
+	stream.Pub(ctx, "t2_3", "t2")
+
+	stream.Pub(ctx, "t3_1", "t3")
+	stream.Pub(ctx, "t3_2", "t3")
+	stream.Pub(ctx, "t3_3", "t3")
+
+	stream.Sub(&Client{}, stream.Last, "t2")
+
+}
+
 func Test_Stream_count(t *testing.T) {
 	ctx := context.Background()
 
-	stream := NewStream(func(ctx context.Context, client *Client, msg string) error {
+	stream := NewStream[string, *Client]()
+
+	stream.Start(func(client *Client, msg string) {
 		client.ID++
-		return nil
 	})
 
 	var clients []*Client
 	for i := 0; i < 10; i++ {
 		client := &Client{}
 		clients = append(clients, client)
-		stream.Sub(client, 0, fmt.Sprintf("a%d", i), fmt.Sprintf("b%d", i))
+		stream.Sub(client, stream.Last, fmt.Sprintf("a%d", i), fmt.Sprintf("b%d", i))
 	}
 
 	for i := 0; i < 1000; i++ {
-		stream.Pub(ctx, "text", fmt.Sprintf("a%d", i%10), fmt.Sprintf("b%d", i%2))
+		_ = stream.Pub(ctx, "text", fmt.Sprintf("a%d", i%10), fmt.Sprintf("b%d", i%2))
 	}
 
 	time.Sleep(time.Second * 2)
@@ -61,24 +82,31 @@ func Test_Stream(t *testing.T) {
 
 	c1 := &Client{ID: 1}
 	c2 := &Client{ID: 2}
+	c3 := &Client{ID: 3}
 
-	h := &Handler{}
+	h := &Handler{
+		stream: NewStream[string, *Client](),
+	}
 
-	stream := NewStream(h.OnMsg1)
+	h.stream.Start(h.OnMsg1)
 
 	//onStep = func() {
 	//	printStream(stream)
 	//	fmt.Println()
 	//}
 
-	stream.Sub(c1, -1, "one")
-	stream.Sub(c2, -1, "one")
+	h.stream.Pub(ctx, "msg1", "one")
+	h.stream.Pub(ctx, "msg2", "one")
+	h.stream.Pub(ctx, "msg3", "one")
 
-	stream.Pub(ctx, "msg1", "one")
-	stream.Pub(ctx, "msg2", "one")
-	stream.Pub(ctx, "msg3", "one")
+	h.stream.Sub(c1, h.stream.First, "one")
+	h.stream.Sub(c2, h.stream.Last, "one")
+	h.stream.Sub(c3, func(messages []string) (int, error) {
+		fmt.Println(messages)
+		return 0, nil
+	}, "one")
 
-	stream.UnSub(c1)
+	// h.stream.UnSub(c1)
 
 	// stream.WaitWorkers()
 	// printStream(stream)

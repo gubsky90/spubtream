@@ -7,27 +7,21 @@ import (
 	"time"
 )
 
-func (stream *Stream[M, R]) gc(fn func(messages []M) int) {
+func (stream *Stream[M, R]) gc(name string, minDrop int) {
 	if len(stream.messages) == 0 {
 		return
 	}
 
 	var unused int
-
-	//if stream.waitForLaggards {
-	if true {
-		for _, count := range stream.used {
-			if count > 0 {
-				break
-			}
-			unused++
+	for _, count := range stream.used {
+		if count > 0 {
+			break
 		}
-	} else {
-		unused = len(stream.messages)
+		unused++
 	}
 
-	drop := min(unused, fn(stream.messages))
-	if drop < 512 {
+	drop := min(unused, len(stream.messages))
+	if drop < minDrop {
 		return
 	}
 
@@ -58,6 +52,7 @@ func (stream *Stream[M, R]) gc(fn func(messages []M) int) {
 	stream.offset += drop
 
 	slog.Info("[GC]",
+		"name", name,
 		"receivers", len(stream.receivers),
 		"messages", fmt.Sprintf("[%d:%d]", len(stream.messages), cap(stream.messages)),
 		"used", fmt.Sprintf("[%d:%d]", len(stream.used), cap(stream.used)),
@@ -99,27 +94,30 @@ func (stream *Stream[M, R]) chanWorker() {
 		case req := <-stream.requestStats:
 			req <- stream.stats
 		case <-gc.C:
-			stream.gc(func(messages []M) int {
-				return len(messages)
-			})
-
+			stream.gc("timer", 5000)
 			if len(stream.messages) < messagesLimit {
 				pub = stream.pub
 			}
-
 		case resub := <-stream.resub:
 			stream.handleReSub(resub.receiver, resub.add, resub.remove)
 		case receiver := <-stream.unsub:
 			stream.handleUnSub(receiver)
 		case sub := <-stream.sub:
-			stream.stats.Subscriptions++
-			if stream.handleSub(sub) && process == nil {
-				selectTask()
+			offset, err := sub.pos(stream.messages)
+			sub.done <- err
+			if err == nil {
+				stream.stats.Subscriptions++
+				if stream.handleSub(sub.receiver, offset, sub.tagIDs) && process == nil {
+					selectTask()
+				}
 			}
 		case msg := <-pub:
 			stream.stats.Published++
 			if stream.handlePub(msg.msg, msg.tags) && process == nil {
 				selectTask()
+			}
+			if len(stream.messages) == messagesLimit {
+				stream.gc("pub", 500)
 			}
 			if len(stream.messages) == messagesLimit {
 				pub = nil
@@ -129,7 +127,7 @@ func (stream *Stream[M, R]) chanWorker() {
 
 			stream.stats.Received++
 
-			stream.used[task.sub.offset-stream.offset]--
+			// stream.used[task.sub.offset-stream.offset]--
 
 			if task.sub.tagIDs == nil { // unsubscribed
 				//*task.sub = Subscription[R]{}
