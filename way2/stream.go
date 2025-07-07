@@ -24,12 +24,6 @@ type Task[M any, R comparable] struct {
 	msg      M
 }
 
-type ReSub[R comparable] struct {
-	receiver R
-	add      []string
-	remove   []string
-}
-
 type Stream[M any, R comparable] struct {
 	offset    int
 	messages  []M
@@ -40,6 +34,8 @@ type Stream[M any, R comparable] struct {
 	head      R
 	tail      R
 
+	hold         chan Hold[M]
+	release      chan int
 	sub          chan Sub[M, R]
 	resub        chan ReSub[R]
 	unsub        chan R
@@ -47,18 +43,6 @@ type Stream[M any, R comparable] struct {
 	process      chan Task[M, R]
 	done         chan Task[M, R]
 	requestStats chan chan Stats
-}
-
-type Sub[M any, R comparable] struct {
-	done     chan error
-	pos      Positioner[M]
-	tagIDs   []int
-	receiver R
-}
-
-type Pub[M any] struct {
-	msg  M
-	tags []string
 }
 
 func (stream *Stream[M, R]) Pub(ctx context.Context, msg M, tags ...string) error {
@@ -179,6 +163,7 @@ func (stream *Stream[M, R]) handleSub(receiver R, offset int, tagIDs []int) bool
 
 func (stream *Stream[M, R]) handleUnSub(receiver R) {
 	sub := stream.receivers[receiver]
+	delete(stream.receivers, receiver)
 	//if sub == nil {
 	//	return
 	//}

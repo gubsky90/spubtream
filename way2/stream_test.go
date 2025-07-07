@@ -95,10 +95,14 @@ func Test_Stream(t *testing.T) {
 	//	fmt.Println()
 	//}
 
+	pos, free, _ := h.stream.Hold(h.stream.Last)
+	defer free()
+
 	h.stream.Pub(ctx, "msg1", "one")
 	h.stream.Pub(ctx, "msg2", "one")
 	h.stream.Pub(ctx, "msg3", "one")
 
+	h.stream.Sub(c1, pos, "one")
 	h.stream.Sub(c1, h.stream.First, "one")
 	h.stream.Sub(c2, h.stream.Last, "one")
 	h.stream.Sub(c3, func(messages []string) (int, error) {
@@ -106,7 +110,13 @@ func Test_Stream(t *testing.T) {
 		return 0, nil
 	}, "one")
 
-	// h.stream.UnSub(c1)
+	time.Sleep(time.Second)
+	fmt.Println("receivers", len(h.stream.receivers))
+
+	h.stream.UnSub(c1)
+
+	time.Sleep(time.Second)
+	fmt.Println("receivers", len(h.stream.receivers))
 
 	// stream.WaitWorkers()
 	// printStream(stream)

@@ -91,17 +91,33 @@ func (stream *Stream[M, R]) chanWorker() {
 
 	for {
 		select {
+		case hold := <-stream.hold:
+			offset, err := hold.pos(stream.messages)
+			if err != nil {
+				hold.res <- HoldResult[M]{err: err}
+				continue
+			}
+			stream.used[offset]++
+			hold.res <- HoldResult[M]{offset: offset}
+
+		case offset := <-stream.release:
+			stream.used[offset]--
+
 		case req := <-stream.requestStats:
 			req <- stream.stats
+
 		case <-gc.C:
 			stream.gc("timer", 5000)
 			if len(stream.messages) < messagesLimit {
 				pub = stream.pub
 			}
+
 		case resub := <-stream.resub:
 			stream.handleReSub(resub.receiver, resub.add, resub.remove)
+
 		case receiver := <-stream.unsub:
 			stream.handleUnSub(receiver)
+
 		case sub := <-stream.sub:
 			offset, err := sub.pos(stream.messages)
 			sub.done <- err
@@ -111,6 +127,7 @@ func (stream *Stream[M, R]) chanWorker() {
 					selectTask()
 				}
 			}
+
 		case msg := <-pub:
 			stream.stats.Published++
 			if stream.handlePub(msg.msg, msg.tags) && process == nil {
@@ -122,6 +139,7 @@ func (stream *Stream[M, R]) chanWorker() {
 			if len(stream.messages) == messagesLimit {
 				pub = nil
 			}
+
 		case task := <-stream.done:
 			// handle task.err
 
@@ -135,16 +153,12 @@ func (stream *Stream[M, R]) chanWorker() {
 			} else if stream.reQ(task.receiver, task.sub) && process == nil {
 				selectTask()
 			}
+
 		case process <- readyTask:
 			selectTask()
+
 		}
 
 		stream.stats.Messages = len(stream.messages)
-
-		if onStep != nil {
-			onStep()
-		}
 	}
 }
-
-var onStep func()
