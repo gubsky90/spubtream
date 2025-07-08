@@ -11,14 +11,23 @@ func (stream *Stream[M, R]) First([]M) (int, error) {
 }
 
 func (stream *Stream[M, R]) Hold(pos Positioner[M]) (Positioner[M], func(), error) {
-	res := make(chan HoldResult[M])
-	stream.hold <- Hold[M]{
-		pos: pos,
-		res: res,
+	stream.lock <- struct{}{}
+	defer func() {
+		stream.unlock <- false
+	}()
+
+	offset, err := pos(stream.messages)
+	if err != nil {
+		return nil, nil, err
 	}
-	r := <-res
-	if r.err != nil {
-		return nil, nil, r.err
+
+	stream.used[offset]++
+
+	release := func() {
+		stream.lock <- struct{}{}
+		stream.used[offset]--
+		stream.unlock <- false
 	}
-	return func([]M) (int, error) { return r.offset, nil }, func() { stream.release <- r.offset }, nil
+
+	return func([]M) (int, error) { return offset, nil }, release, nil
 }

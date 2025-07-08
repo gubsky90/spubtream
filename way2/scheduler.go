@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"sync/atomic"
 	"time"
 )
 
@@ -26,22 +27,17 @@ func (stream *Stream[M, R]) gc(name string, minDrop int) {
 	}
 
 	dropOffset := stream.offset + drop
-	for tagID, indexItem := range stream.index {
-		if len(indexItem.msgIDs) == 0 {
-			continue
+
+	stream.index.rangeItems(func(tagID int, item *IndexItem[R]) {
+		if len(item.msgIDs) == 0 {
+			return
 		}
-		if indexItem.msgIDs[0] > dropOffset {
-			continue
+		if item.msgIDs[0] > dropOffset {
+			return
 		}
-		i := sort.SearchInts(indexItem.msgIDs, dropOffset)
-		//if i == len(items) {
-		//	delete(s.tags, tagID)
-		//	// s.tags[tagID] = items[:0]
-		//	continue
-		//}
-		indexItem.msgIDs = indexItem.msgIDs[:copy(indexItem.msgIDs, indexItem.msgIDs[i:])]
-		stream.index[tagID] = indexItem
-	}
+		i := sort.SearchInts(item.msgIDs, dropOffset)
+		item.msgIDs = item.msgIDs[:copy(item.msgIDs, item.msgIDs[i:])]
+	})
 
 	n := copy(stream.messages, stream.messages[drop:])
 	_ = copy(stream.used, stream.used[drop:])
@@ -76,7 +72,7 @@ func (stream *Stream[M, R]) chanWorker() {
 	selectTask := func() {
 		var ok bool
 		if readyTask, ok = stream.selectTask(); ok {
-			stream.stats.Selected++
+			atomic.AddInt64(&stream.stats.Selected, 1)
 			process = stream.process
 		} else {
 			process = nil
@@ -91,45 +87,19 @@ func (stream *Stream[M, R]) chanWorker() {
 
 	for {
 		select {
-		case hold := <-stream.hold:
-			offset, err := hold.pos(stream.messages)
-			if err != nil {
-				hold.res <- HoldResult[M]{err: err}
-				continue
-			}
-			stream.used[offset]++
-			hold.res <- HoldResult[M]{offset: offset}
-
-		case offset := <-stream.release:
-			stream.used[offset]--
-
-		case req := <-stream.requestStats:
-			req <- stream.stats
-
 		case <-gc.C:
 			stream.gc("timer", 5000)
 			if len(stream.messages) < messagesLimit {
 				pub = stream.pub
 			}
 
-		case resub := <-stream.resub:
-			stream.handleReSub(resub.receiver, resub.add, resub.remove)
-
-		case receiver := <-stream.unsub:
-			stream.handleUnSub(receiver)
-
-		case sub := <-stream.sub:
-			offset, err := sub.pos(stream.messages)
-			sub.done <- err
-			if err == nil {
-				stream.stats.Subscriptions++
-				if stream.handleSub(sub.receiver, offset, sub.tagIDs) && process == nil {
-					selectTask()
-				}
+		case <-stream.lock:
+			if <-stream.unlock && process == nil {
+				selectTask()
 			}
 
 		case msg := <-pub:
-			stream.stats.Published++
+			atomic.AddInt64(&stream.stats.Published, 1)
 			if stream.handlePub(msg.msg, msg.tags) && process == nil {
 				selectTask()
 			}
@@ -141,13 +111,11 @@ func (stream *Stream[M, R]) chanWorker() {
 			}
 
 		case task := <-stream.done:
-			// handle task.err
-
-			stream.stats.Received++
+			atomic.AddInt64(&stream.stats.Received, 1)
 
 			// stream.used[task.sub.offset-stream.offset]--
 
-			if task.sub.tagIDs == nil { // unsubscribed
+			if task.sub.unsubscribed() {
 				//*task.sub = Subscription[R]{}
 				//task = Task[M, R]{}
 			} else if stream.reQ(task.receiver, task.sub) && process == nil {
@@ -159,6 +127,6 @@ func (stream *Stream[M, R]) chanWorker() {
 
 		}
 
-		stream.stats.Messages = len(stream.messages)
+		atomic.StoreInt64(&stream.stats.Messages, int64(len(stream.messages)))
 	}
 }

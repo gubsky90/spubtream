@@ -1,15 +1,21 @@
 package way
 
+import "sync/atomic"
+
 type Stats struct {
-	Messages      int
-	Subscriptions int
-	Published     int
-	Received      int
-	Selected      int
+	Messages      int64
+	Subscriptions int64
+	Published     int64
+	Received      int64
+	Selected      int64
 }
 
 func (stream *Stream[M, R]) Stats() Stats {
-	req := make(chan Stats)
-	stream.requestStats <- req
-	return <-req
+	return Stats{
+		Messages:      atomic.LoadInt64(&stream.stats.Messages),
+		Subscriptions: atomic.LoadInt64(&stream.stats.Subscriptions),
+		Published:     atomic.LoadInt64(&stream.stats.Published),
+		Received:      atomic.LoadInt64(&stream.stats.Received),
+		Selected:      atomic.LoadInt64(&stream.stats.Selected),
+	}
 }

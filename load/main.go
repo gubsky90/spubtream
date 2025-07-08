@@ -32,7 +32,7 @@ type Client struct {
 	ID int
 }
 
-func (c *Consumer) OnMessage(client *Client, msg *TestMessage) {
+func (c *Consumer) OnMessage(client any, msg *TestMessage) {
 	// time.Sleep(time.Duration(rand.Intn(10)) * time.Millisecond)
 }
 
@@ -44,7 +44,7 @@ func main() {
 
 	consumer := &Consumer{}
 
-	stream := way.NewStream[*TestMessage, *Client]()
+	stream := way.NewStream[*TestMessage, any]()
 	stream.Start(consumer.OnMessage)
 	go metrics(stream.Stats)
 
