@@ -15,6 +15,10 @@ func (sub *Subscription[R]) unsubscribed() bool {
 	return sub.tagIDs == nil
 }
 
+func (sub *Subscription[R]) inQ() bool {
+	return sub.next != Zero[R]()
+}
+
 type Task[M any, R comparable] struct {
 	sub      *Subscription[R]
 	receiver R
@@ -35,15 +39,9 @@ type Stream[M any, R comparable] struct {
 	lock   chan struct{}
 	unlock chan bool
 
-	// hold    chan Hold[M]
-	// release chan int
-	// sub          chan *Sub[M, R]
-	// resub chan ReSub[R]
-	// unsub        chan R
 	pub     chan Pub[M]
 	process chan Task[M, R]
 	done    chan Task[M, R]
-	// requestStats chan chan Stats
 }
 
 func (stream *Stream[M, R]) Pub(ctx context.Context, msg M, tags ...string) error {
@@ -134,10 +132,6 @@ repeat:
 	}, true
 }
 
-func (stream *Stream[M, R]) inQ(sub *Subscription[R]) bool {
-	return sub.next != Zero[R]()
-}
-
 func (stream *Stream[M, R]) reQ(receiver R, sub *Subscription[R]) bool {
 	if pos, end := stream.nextPos(sub.tagIDs, sub.offset); !end {
 		sub.offset = pos
@@ -218,7 +212,7 @@ func (stream *Stream[M, R]) handlePub(msg M, tags []string) bool {
 
 		stream.index.rangeReceivers(tagID, func(receiver R) {
 			sub := stream.receivers[receiver]
-			if !stream.inQ(sub) {
+			if !sub.inQ() {
 				sub.offset = msgID
 				stream.enQ(receiver, sub)
 				ok = true
@@ -232,16 +226,11 @@ func NewStream[M any, R comparable]() *Stream[M, R] {
 	stream := Stream[M, R]{
 		receivers: map[R]*Subscription[R]{},
 		index:     NewIndex[R](),
-		// sub:          make(chan *Sub[M, R]),
-		// resub:        make(chan ReSub[R]),
-		// unsub:        make(chan R),
-		pub:     make(chan Pub[M]),
-		process: make(chan Task[M, R]),
-		done:    make(chan Task[M, R]),
-		// requestStats: make(chan chan Stats),
-
-		lock:   make(chan struct{}),
-		unlock: make(chan bool),
+		pub:       make(chan Pub[M]),
+		process:   make(chan Task[M, R]),
+		done:      make(chan Task[M, R]),
+		lock:      make(chan struct{}),
+		unlock:    make(chan bool),
 	}
 
 	go stream.chanWorker()
