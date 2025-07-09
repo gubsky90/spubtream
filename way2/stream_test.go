@@ -88,6 +88,14 @@ func Test_Stream(t *testing.T) {
 		stream: NewStream[string, *Client](),
 	}
 
+	StartStaticPool(h.stream.Tasks(), 32, func(task Task[string, *Client]) {
+		h.OnMsg1(task.receiver, task.msg)
+	})
+
+	for task := range h.stream.Tasks() {
+		h.OnMsg1(task.receiver, task.msg)
+	}
+
 	h.stream.Start(h.OnMsg1)
 
 	//onStep = func() {
@@ -128,22 +136,4 @@ func Test_Stream(t *testing.T) {
 	//}
 
 	time.Sleep(time.Second * 5)
-}
-
-func printStream[M any, R comparable](stream *Stream[M, R]) {
-	fmt.Printf("head: %v\n", stream.head)
-	fmt.Printf("tail: %v\n", stream.tail)
-	fmt.Printf("used: %v\n", stream.used)
-	fmt.Printf("offset: %v\n", stream.offset)
-
-	fmt.Printf("index\n")
-	for tagID, item := range stream.index {
-		fmt.Printf("\t%v\n", tagID)
-		fmt.Printf("\t\tmsgIDs: %v\n", item.msgIDs)
-
-		fmt.Printf("\t\treceivers\n")
-		for _, sub := range item.receivers {
-			fmt.Printf("\t\t\t%v\n", sub)
-		}
-	}
 }

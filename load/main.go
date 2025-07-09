@@ -83,9 +83,9 @@ func main() {
 			p++
 			msg := messages[p%len(messages)]
 			_ = stream.Pub(ctx, msg, msg.Tags...)
-			//if p%len(messages) == 0 {
-			//	time.Sleep(time.Second * 10)
-			//}
+			if p%len(messages) == 0 {
+				time.Sleep(time.Second * 10)
+			}
 		}
 	}()
 

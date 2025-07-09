@@ -49,6 +49,7 @@ func (stream *Stream[M, R]) gc(name string, minDrop int) {
 
 	slog.Info("[GC]",
 		"name", name,
+		"Received", stream.stats.Received,
 		"receivers", len(stream.receivers),
 		"messages", fmt.Sprintf("[%d:%d]", len(stream.messages), cap(stream.messages)),
 		"used", fmt.Sprintf("[%d:%d]", len(stream.used), cap(stream.used)),
@@ -124,7 +125,6 @@ func (stream *Stream[M, R]) chanWorker() {
 
 		case process <- readyTask:
 			selectTask()
-
 		}
 
 		atomic.StoreInt64(&stream.stats.Messages, int64(len(stream.messages)))
