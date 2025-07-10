@@ -1,4 +1,4 @@
-package way
+package spubtream
 
 type Positioner[M any] func(messages []M) (int, error)
 

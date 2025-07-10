@@ -4,173 +4,69 @@ import (
 	"context"
 	"encoding/json"
 	"log"
-	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"os/signal"
-	"strings"
 	"sync"
 	"syscall"
-	"time"
 
-	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
-	"github.com/gubsky90/spubtream"
-	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/gubsky90/spubtream/v2"
 )
-
-type Client struct {
-	conn net.Conn
-}
-
-func (c *Client) Receive(_ context.Context, message *Message) error {
-	return wsutil.WriteServerText(c.conn, message.Payload)
-}
-
-type Message struct {
-	Tags    []string
-	Payload []byte
-}
-
-func (m *Message) MessageTags() []string {
-	return m.Tags
-}
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	if err := run(ctx); err != nil {
+		log.Fatal(err)
+	}
+}
 
+func run(ctx context.Context) error {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 
-	stream := spubtream.New[*Message](ctx).Stream()
+	stream := spubtream.NewStream[[]byte, net.Conn]()
+	stream.StartDynamicPool(func(msg []byte, conn net.Conn) {
+		_ = wsutil.WriteServerText(conn, msg)
+	})
 
-	if err := consume(ctx, &wg, "amqp://guest:guest@127.0.0.1:5672/", "ws.notifications", func(delivery amqp.Delivery) {
+	//if err := consume(ctx, &wg, "amqp://guest:guest@127.0.0.1:5672/", "ws.notifications", func(delivery amqp.Delivery) {
+	//	var body struct {
+	//		Tags []string `json:"tags"`
+	//	}
+	//	if err := json.Unmarshal(delivery.Body, &body); err != nil {
+	//		slog.Error("json.Unmarshal", "body", string(delivery.Body), "err", err)
+	//		return
+	//	}
+	//	slog.Info("Pub", "msg", string(delivery.Body))
+	//	_ = stream.Pub(ctx, delivery.Body, body.Tags...)
+	//}); err != nil {
+	//	log.Fatal(err)
+	//}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		bytes, _ := os.ReadFile("index.html")
+		w.Write(bytes)
+	})
+	mux.HandleFunc("/send", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Tags []string `json:"tags"`
+			Tags    []string `json:"tags"`
+			Payload string   `json:"payload"`
 		}
-		if err := json.Unmarshal(delivery.Body, &body); err != nil {
-			slog.Error("json.Unmarshal", "body", string(delivery.Body), "err", err)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		msg := &Message{
-			Tags:    body.Tags,
-			Payload: delivery.Body,
-		}
-		slog.Info("Pub", "msg", string(delivery.Body))
-		_ = stream.Pub(ctx, msg)
-	}); err != nil {
-		log.Fatal(err)
-	}
+		_ = stream.Pub(r.Context(), []byte(body.Payload), body.Tags...)
+	})
+	mux.Handle("/ws", WS(stream))
 
-	server := &http.Server{
-		Addr: ":9010",
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			conn, _, _, err := ws.UpgradeHTTP(r, w)
-			if err != nil {
-				return
-			}
-
-			tags, err := auth(conn)
-			if err != nil {
-				slog.Debug("auth failed", "err", err)
-				_ = conn.Close()
-				return
-			}
-
-			stream.Sub(&Client{
-				conn: conn,
-			}, stream.Newest(), tags...)
-		}),
-	}
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		<-ctx.Done()
-		_ = server.Shutdown(context.Background())
-	}()
-
-	if err := server.ListenAndServe(); err != nil {
-		log.Fatal(err)
-	}
-}
-
-func auth(conn net.Conn) ([]string, error) {
-	msg, _, err := wsutil.ReadClientData(conn)
-	if err != nil {
-		return nil, err
-	}
-
-	var authMsg struct {
-		Token string `json:"token"` // sub tags here (tag1,tag2,...)
-	}
-	if err := json.Unmarshal(msg, &authMsg); err != nil {
-		return nil, err
-	}
-
-	return strings.Split(authMsg.Token, ","), nil
-}
-
-func consume(ctx context.Context, wg *sync.WaitGroup, url, queue string, fn func(amqp.Delivery)) (err error) {
-	conn, err := amqp.Dial(url)
-	if err != nil {
+	if err := ListenAndServe(ctx, &wg, ":9010", mux); err != nil {
 		return err
 	}
-	defer func() {
-		if err != nil {
-			conn.Close()
-		}
-	}()
-
-	ch, err := conn.Channel()
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err != nil {
-			ch.Close()
-		}
-	}()
-
-	if err := ch.Qos(2, 0, false); err != nil {
-		return err
-	}
-
-	deliveries, err := ch.ConsumeWithContext(ctx, queue, "test", false, false, false, false, nil)
-	if err != nil {
-		return err
-	}
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
-		slog.Info("start consume")
-		for delivery := range deliveries {
-			if err := delivery.Ack(false); err != nil {
-				slog.Error("Ack", "err", err)
-				break
-			}
-			fn(delivery)
-		}
-
-		slog.Info("stop consume")
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(time.Second):
-			}
-
-			if err := consume(ctx, wg, url, queue, fn); err != nil {
-				slog.Warn("reconnect failed", "err", err)
-			}
-
-			break
-		}
-	}()
 
 	return nil
 }

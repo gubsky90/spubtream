@@ -1,0 +1,51 @@
+<html>
+    <head>
+        <script>
+            function logDiv(text) {
+                let div = document.createElement('div');
+                div.innerText = text;
+                return div;
+            }
+
+            function spawn() {
+                let tags = spawn_tags.value;
+                let socket = new WebSocket('ws://'+location.host+'/ws');
+
+                let item = document.createElement('div');
+                item.appendChild(logDiv('Tags '+tags));
+                document.body.appendChild(item);
+
+                socket.onclose = function(event) {
+                    console.log("onclose", tags, event)
+                    item.appendChild(logDiv('onclose '));
+                };
+                socket.onopen = function (event) {
+                    console.log("onopen", tags, event)
+                    socket.send(JSON.stringify({token: tags}))
+                };
+                socket.onmessage = function (event) {
+                    console.log("onmessage", tags, event)
+                    item.appendChild(logDiv('onmessage '+JSON.stringify(event.data)));
+                };
+            }
+
+            function send() {
+                fetch('/send', {method: 'POST', body: JSON.stringify({
+                    tags: tags.value.split(','),
+                    payload: payload.value,
+                })});
+            }
+        </script>
+    </head>
+    <body>
+        <div>
+            <input id="payload" placeholder="Payload..."/>
+            <input id="tags" placeholder="Tags..."/>
+            <button onclick="send()">Send</button>
+        </div>
+        <div>
+            <input id="spawn_tags" placeholder="Tags..."/>
+            <button onclick="spawn()">Spawn</button>
+        </div>
+    </body>
+</html>

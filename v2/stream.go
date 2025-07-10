@@ -1,4 +1,4 @@
-package way
+package spubtream
 
 import (
 	"context"
@@ -88,6 +88,7 @@ func (stream *Stream[M, R]) UnSub(receiver R) {
 	//if sub == nil {
 	//	return
 	//}
+
 	for _, tagID := range sub.tagIDs {
 		stream.index.deleteReceiver(tagID, receiver)
 	}

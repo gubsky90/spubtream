@@ -1,4 +1,4 @@
-package way
+package spubtream
 
 import (
 	"sync"
@@ -18,6 +18,13 @@ func (stream *Stream[M, R]) Start(consumerFunc ConsumerFunc[M, R]) {
 	//	consumerFunc(task.receiver, task.msg)
 	//	stream.done <- task
 	//})
+}
+
+func (stream *Stream[M, R]) StartDynamicPool(fn func(M, R)) {
+	StartDynamicPool(stream.process, 10000, time.Second, func(task Task[M, R]) {
+		fn(task.msg, task.receiver)
+		stream.done <- task
+	})
 }
 
 func (stream *Stream[M, R]) Tasks() <-chan Task[M, R] {

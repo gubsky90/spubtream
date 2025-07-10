@@ -1,4 +1,4 @@
-package way
+package spubtream
 
 import "sync"
 

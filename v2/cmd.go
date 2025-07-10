@@ -1,4 +1,4 @@
-package way
+package spubtream
 
 type Pub[M any] struct {
 	msg  M

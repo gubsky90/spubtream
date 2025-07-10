@@ -1,4 +1,4 @@
-package way
+package spubtream
 
 type IndexItemNode[R comparable] struct {
 	next     *IndexItemNode[R]
@@ -49,6 +49,11 @@ func (index *Index[R]) deleteReceiver(tagID int, receiver R) {
 	}
 
 	cur := item.receiverHead
+	if cur != nil && cur.receiver == receiver {
+		item.receiverHead = cur.next
+		return
+	}
+
 	prev := cur
 	for cur != nil {
 		if cur.receiver == receiver {

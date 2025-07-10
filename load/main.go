@@ -9,7 +9,7 @@ import (
 
 	_ "net/http/pprof"
 
-	way "github.com/gubsky90/spubtream/way2"
+	way "github.com/gubsky90/spubtream/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
