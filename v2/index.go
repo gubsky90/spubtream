@@ -43,6 +43,8 @@ func (index *Index[R]) addReceiver(tagID int, receiver R) {
 }
 
 func (index *Index[R]) deleteReceiver(tagID int, receiver R) {
+	// TODO: remove empty index item
+
 	item := index.items[tagID]
 	if item == nil {
 		return
@@ -51,6 +53,8 @@ func (index *Index[R]) deleteReceiver(tagID int, receiver R) {
 	cur := item.receiverHead
 	if cur != nil && cur.receiver == receiver {
 		item.receiverHead = cur.next
+		// cur.next = nil
+		// cur.receiver = Zero[R]()
 		return
 	}
 
@@ -58,6 +62,8 @@ func (index *Index[R]) deleteReceiver(tagID int, receiver R) {
 	for cur != nil {
 		if cur.receiver == receiver {
 			prev.next = cur.next
+			// cur.next = nil
+			// cur.receiver = Zero[R]()
 			return
 		}
 		prev = cur
@@ -81,6 +87,11 @@ func (index *Index[R]) rangeReceivers(tagID int, fn func(R)) {
 func (index *Index[R]) rangeItems(fn func(int, *IndexItem[R])) {
 	for tagID, item := range index.items {
 		fn(tagID, item)
+
+		// TODO: delete empty index item
+		//if len(item.msgIDs) == 0 && item.receiverHead == nil {
+		//	delete(index.items, tagID)
+		//}
 	}
 }
 

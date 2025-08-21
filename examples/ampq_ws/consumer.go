@@ -59,13 +59,12 @@ func consume(ctx context.Context, wg *sync.WaitGroup, url, queue string, fn func
 			case <-ctx.Done():
 				return
 			case <-time.After(time.Second):
+				if err := consume(ctx, wg, url, queue, fn); err != nil {
+					slog.Warn("reconnect failed", "err", err)
+				} else {
+					return
+				}
 			}
-
-			if err := consume(ctx, wg, url, queue, fn); err != nil {
-				slog.Warn("reconnect failed", "err", err)
-			}
-
-			break
 		}
 	}()
 

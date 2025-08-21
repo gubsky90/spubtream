@@ -2,49 +2,21 @@ package main
 
 import (
 	"encoding/json"
-	"log/slog"
+	"fmt"
 	"net"
-	"net/http"
-	"strings"
+	"time"
 
-	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/gubsky90/spubtream/v2"
 )
 
 type Stream = spubtream.Stream[[]byte, net.Conn]
 
-func WS(stream *Stream) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		conn, _, _, err := ws.UpgradeHTTP(r, w)
-		if err != nil {
-			return
-		}
-
-		go func() {
-			defer conn.Close()
-
-			tags, err := auth(conn)
-			if err != nil {
-				slog.Debug("auth failed", "err", err)
-				return
-			}
-
-			_ = stream.Sub(conn, stream.Last, tags...)
-			defer stream.UnSub(conn)
-
-			for {
-				_, _, err := wsutil.ReadClientData(conn)
-				if err != nil {
-					return
-				}
-			}
-		}()
-	}
-}
-
 func auth(conn net.Conn) ([]string, error) {
+	_ = conn.SetReadDeadline(time.Now().Add(time.Second * 2))
 	msg, _, err := wsutil.ReadClientData(conn)
+	_ = conn.SetReadDeadline(time.Time{})
 	if err != nil {
 		return nil, err
 	}
@@ -56,5 +28,21 @@ func auth(conn net.Conn) ([]string, error) {
 		return nil, err
 	}
 
-	return strings.Split(authMsg.Token, ","), nil
+	var claims struct {
+		jwt.RegisteredClaims
+		Tags []string `json:"tags"`
+	}
+	if _, err := jwt.ParseWithClaims(authMsg.Token, &claims, func(*jwt.Token) (any, error) {
+		return []byte("test"), nil
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()})); err != nil {
+		return nil, err
+	}
+
+	// jwt.SigningMethodHS256.Sign()
+
+	fmt.Println(claims)
+
+	return claims.Tags, nil
 }
+
+// eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpcCI6IjE3Mi4yMi4wLjEiLCJ1c2VyX2FnZW50IjoiUG9zdG1hblJ1bnRpbWUvNy40My4wIiwidGFncyI6WyJhbGwiLCJ1c2VyI3N1cGVyIl0sImlhdCI6MTc0NTI4NTcwOH0.jKZovuhT1ORWYL0wFAPXsLgX47_G2lCBVr7s5BxnOh8

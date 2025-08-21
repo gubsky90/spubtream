@@ -1,5 +1,12 @@
 <html>
     <head>
+        <style>
+            .item {
+                margin: 10px;
+                padding: 10px;
+                border: 1px solid gray;
+            }
+        </style>
         <script>
             function logDiv(text) {
                 let div = document.createElement('div');
@@ -9,10 +16,26 @@
 
             function spawn() {
                 let tags = spawn_tags.value;
-                let socket = new WebSocket('ws://'+location.host+'/ws');
+                let socket = new WebSocket('ws://'+location.hostname+':9091');
 
                 let item = document.createElement('div');
+                item.className = 'item';
                 item.appendChild(logDiv('Tags '+tags));
+
+                let closeBtn = document.createElement('button');
+                closeBtn.innerText = 'close';
+                closeBtn.onclick = function () {
+                    socket.close();
+                };
+                item.appendChild(closeBtn);
+
+                let reqBtn = document.createElement('button');
+                reqBtn.innerText = 'req';
+                reqBtn.onclick = function () {
+                    socket.send("some data here");
+                };
+                item.appendChild(reqBtn);
+
                 document.body.appendChild(item);
 
                 socket.onclose = function(event) {
