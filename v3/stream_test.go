@@ -2,6 +2,7 @@ package v3
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
 )
@@ -15,9 +16,14 @@ func TestName(t *testing.T) {
 	stream.Pub("msg1", "tag")
 	stream.Pub("msg2", "two")
 
-	for i := 0; i < 10; i++ {
-		stream.Read()
+	for sub := range stream.out {
+		fmt.Println(stream.Get(sub))
+		stream.Done(sub)
 	}
+
+	//for i := 0; i < 10; i++ {
+	//	stream.Read()
+	//}
 }
 
 func BenchmarkPub(b *testing.B) {
@@ -47,8 +53,6 @@ func (stream *Stream[M, R]) MarshalJSON() ([]byte, error) {
 		"used":          stream.used,
 		"subscriptions": stream.subscriptions,
 		"tags":          stream.tags,
-		"head":          stream.head,
-		"tail":          stream.tail,
 	})
 }
 
