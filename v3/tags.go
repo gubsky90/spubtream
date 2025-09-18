@@ -1,9 +1,11 @@
-package v3
+package spubtream
 
-import "sort"
+import (
+	"sort"
+)
 
 type TagRoot[R comparable] struct {
-	msgIDs        []int
+	msgIDs        []int64
 	subscriptions *TagReceiver[R]
 }
 
@@ -12,7 +14,7 @@ type TagReceiver[R comparable] struct {
 	subscription *Subscription[R]
 }
 
-func (root *TagRoot[R]) NextMessage(offset int) (_ int, _ bool) {
+func (root *TagRoot[R]) NextMessage(offset int64) (_ int64, _ bool) {
 	l := len(root.msgIDs)
 	n := sort.Search(l, func(i int) bool {
 		return root.msgIDs[i] > offset

@@ -1,222 +1,219 @@
-package v3
+package spubtream
 
 import (
+	"fmt"
 	"slices"
-	"sort"
+	"sync"
+	"sync/atomic"
+	"time"
+	"unsafe"
 )
 
 type Subscription[R comparable] struct {
-	offset   int
+	offset   int64
 	tags     []*TagRoot[R]
 	next     *Subscription[R]
 	receiver R
 }
 
 type Stream[M any, R comparable] struct {
-	offset        int
-	messages      []M
-	used          []int
-	subscriptions map[R]*Subscription[R]
+	queue    *Queue[R]
+	messages *Messages[M]
+
+	mx            sync.Mutex
 	tags          map[string]*TagRoot[R]
-	ready         chan *Subscription[R]
-	out           chan *Subscription[R]
-	done          chan *Subscription[R]
+	subscriptions map[R]*Subscription[R]
+
+	stats Stats
 }
 
 func (stream *Stream[M, R]) Sub(receiver R, tags ...string) {
+	tags = slices.Compact(tags)
+
+	stream.mx.Lock()
+	defer stream.mx.Unlock()
 	if _, exists := stream.subscriptions[receiver]; exists {
 		return
 	}
 
-	tags = slices.Compact(tags)
+	atomic.AddInt64(&stream.stats.Subscriptions, 1)
+
 	sub := &Subscription[R]{
 		offset:   -1,
 		receiver: receiver,
 	}
 	stream.subscriptions[receiver] = sub
-	if len(tags) > 0 {
-		sub.tags = make([]*TagRoot[R], len(tags))
-		for i, tag := range tags {
-			tagRoot := stream.tags[tag]
-			if tagRoot == nil {
-				tagRoot = &TagRoot[R]{}
-				stream.tags[tag] = tagRoot
-			}
-			tagRoot.AddSubscription(sub)
-			sub.tags[i] = tagRoot
+	if len(tags) == 0 {
+		return
+	}
+
+	sub.tags = make([]*TagRoot[R], len(tags))
+	for i, tag := range tags {
+		root := stream.tags[tag]
+		if root == nil {
+			root = &TagRoot[R]{}
+			root.AddSubscription(sub)
+			stream.tags[tag] = root
+		} else {
+			mx := stream.rootMutex(root)
+			mx.Lock()
+			root.AddSubscription(sub)
+			mx.Unlock()
 		}
+		sub.tags[i] = root
 	}
 }
 
 func (stream *Stream[M, R]) UnSub(receiver R) {
-	if sub := stream.subscriptions[receiver]; sub != nil {
-		for _, tag := range sub.tags {
-			tag.DeleteSubscription(sub)
-			if tag.subscriptions == nil {
-				// need cleanup
-			}
-		}
-		*sub = Subscription[R]{offset: sub.offset}
-		delete(stream.subscriptions, receiver)
+	stream.mx.Lock()
+	defer stream.mx.Unlock()
+
+	sub := stream.subscriptions[receiver]
+	if sub == nil {
+		return
 	}
+
+	atomic.AddInt64(&stream.stats.Subscriptions, -1)
+
+	delete(stream.subscriptions, receiver)
+
+	for _, tag := range sub.tags {
+		mx := stream.rootMutex(tag)
+		mx.Lock()
+		tag.DeleteSubscription(sub)
+		if tag.subscriptions == nil {
+			// need cleanup
+		}
+		mx.Unlock()
+	}
+	*sub = Subscription[R]{offset: sub.offset}
 }
 
 func (stream *Stream[M, R]) ReSub(receiver R, add, remove []string) {
-
+	stream.mx.Lock()
+	defer stream.mx.Unlock()
 }
 
 func (stream *Stream[M, R]) Pub(msg M, tags ...string) {
 	if len(tags) == 0 {
 		return
 	}
-
 	tags = slices.Compact(tags)
-	msgIDx := len(stream.messages)
-	msgID := stream.offset + msgIDx
-	used := 0
-	hasReceiver := false
 
+	stream.mx.Lock()
+	defer stream.mx.Unlock()
+
+	var used int
+	var ok bool
+	msgID := stream.messages.LockForAdd()
 	for _, tag := range tags {
-		tagRoot := stream.tags[tag]
-		if tagRoot == nil || tagRoot.subscriptions == nil {
+		root := stream.tags[tag]
+		if root == nil {
 			continue
 		}
-		hasReceiver = true
-		tagRoot.msgIDs = append(tagRoot.msgIDs, msgID)
-		for cur := tagRoot.subscriptions; cur != nil; cur = cur.next {
-			if cur.subscription.offset == -1 {
-				cur.subscription.offset = msgID
+		mx := stream.rootMutex(root)
+		mx.Lock()
+		if root.subscriptions == nil {
+			mx.Unlock()
+			continue
+		}
+		ok = true
+		root.msgIDs = append(root.msgIDs, msgID)
+		for cur := root.subscriptions; cur != nil; cur = cur.next {
+			if atomic.CompareAndSwapInt64(&cur.subscription.offset, -1, msgID) {
 				used++
-				stream.ready <- cur.subscription
+				stream.queue.Enq(cur.subscription)
 			}
 		}
+		mx.Unlock()
 	}
-	if hasReceiver {
-		stream.messages = append(stream.messages, msg)
-		stream.used = append(stream.used, used)
+
+	if ok {
+		atomic.StoreInt64(&stream.stats.Messages, int64(len(stream.messages.messages)))
+		atomic.AddInt64(&stream.stats.Published, 1)
+		stream.messages.AddAndUnlock(msg, used)
+	} else {
+		stream.messages.Unlock()
 	}
 }
 
-func (stream *Stream[M, R]) Get(sub *Subscription[R]) (R, M) {
-	return sub.receiver, stream.messages[sub.offset-stream.offset]
-}
-
-func (sub *Subscription[R]) Next() bool {
-	next := -1
-	for _, tagRoot := range sub.tags {
-		msgID, ok := tagRoot.NextMessage(sub.offset)
+func (stream *Stream[M, R]) Done(sub *Subscription[R]) {
+	var next int64 = -1
+	offset := atomic.LoadInt64(&sub.offset)
+	for _, root := range sub.tags {
+		mx := stream.rootMutex(root)
+		mx.RLock()
+		msgID, ok := root.NextMessage(offset)
+		mx.RUnlock()
 		if ok && (next == -1 || msgID < next) {
 			next = msgID
 		}
 	}
-	sub.offset = next
-	return next != -1
-}
-
-func (stream *Stream[M, R]) Done(sub *Subscription[R]) {
-	stream.done <- sub
+	if atomic.CompareAndSwapInt64(&sub.offset, offset, next) && next != -1 {
+		stream.messages.Used(sub.offset, +1)
+		stream.queue.Enq(sub)
+	}
+	stream.messages.Used(offset, -1)
 }
 
 func (stream *Stream[M, R]) Start(fn func(R, M)) {
-	go func() {
-		for sub := range stream.out {
-			receiver, message := stream.Get(sub)
-			fn(receiver, message)
-			stream.Done(sub)
-		}
-	}()
+	for i := 0; i < 10; i++ {
+		go func() {
+			for sub := range stream.queue.out {
+				atomic.AddInt64(&stream.stats.Received, 1)
+				fn(sub.receiver, stream.messages.Get(sub.offset))
+				stream.Done(sub)
+			}
+		}()
+	}
 }
 
 func (stream *Stream[M, R]) cleanup() {
-	if len(stream.messages) == 0 {
-		return
-	}
-	var drop int
-	for _, count := range stream.used {
-		if count > 0 {
-			break
-		}
-		drop++
-	}
-	if drop == 0 {
+	drop, dropOffset := stream.messages.GetDrop()
+	if drop < 5000 {
 		return
 	}
 
-	dropOffset := stream.offset + drop
+	fmt.Println("cleanup", drop, dropOffset)
+
 	for tag, root := range stream.tags {
+		mx := stream.rootMutex(root)
+		mx.Lock()
 		if root.subscriptions == nil {
 			delete(stream.tags, tag)
 		} else if len(root.msgIDs) > 0 && root.msgIDs[0] <= dropOffset {
-			i := sort.SearchInts(root.msgIDs, dropOffset)
+			i, _ := slices.BinarySearch(root.msgIDs, dropOffset) // TODO: check if dropOffset not found
 			root.msgIDs = root.msgIDs[:copy(root.msgIDs, root.msgIDs[i:])]
 		}
+		mx.Unlock()
 	}
 
-	n := copy(stream.messages, stream.messages[drop:])
-	copy(stream.used, stream.used[drop:])
-	clear(stream.messages[n:])
-	stream.messages = stream.messages[:n]
-	stream.used = stream.used[:n]
-	stream.offset += drop
+	stream.messages.Drop(drop)
 }
 
-func (stream *Stream[M, R]) loop() {
-	var head, tail, cur *Subscription[R]
-	var out chan *Subscription[R]
+var locks = [64]sync.RWMutex{}
 
-	enq := func(sub *Subscription[R]) {
-		if cur == nil {
-			cur = sub
-			out = stream.out
-			return
-		}
-
-		// add to list
-		if tail == nil {
-			tail = sub
-		} else {
-			head.next = sub
-		}
-		head = sub
-	}
-
-	for {
-		select {
-		case sub := <-stream.done:
-			stream.used[sub.offset-stream.offset]--
-			if sub.tags == nil {
-				continue // unsubscribed
-			}
-			if sub.Next() {
-				stream.used[sub.offset-stream.offset]++
-				enq(sub)
-			}
-		case out <- cur:
-			cur = tail
-			if cur == nil {
-				out = nil
-			} else {
-				tail = cur.next
-				cur.next = nil
-				if tail == nil {
-					head = nil
-				}
-			}
-		case sub := <-stream.ready:
-			enq(sub)
-		}
-	}
+func (stream *Stream[M, R]) rootMutex(root *TagRoot[R]) *sync.RWMutex {
+	idx := uintptr(unsafe.Pointer(root)) / 99 % 64
+	return &locks[idx]
 }
 
 func NewStream[M any, R comparable]() *Stream[M, R] {
 	stream := &Stream[M, R]{
-		offset:        1000,
 		subscriptions: map[R]*Subscription[R]{},
 		tags:          map[string]*TagRoot[R]{},
-		ready:         make(chan *Subscription[R]),
-		out:           make(chan *Subscription[R]),
-		done:          make(chan *Subscription[R]),
+		messages: &Messages[M]{
+			offset: 1000,
+		},
+		queue: NewQueue[R](),
 	}
-	go stream.loop()
+
+	go func() {
+		for {
+			time.Sleep(time.Second)
+			stream.cleanup()
+		}
+	}()
+
 	return stream
 }

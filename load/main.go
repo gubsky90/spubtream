@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -9,7 +8,7 @@ import (
 
 	_ "net/http/pprof"
 
-	way "github.com/gubsky90/spubtream/v2"
+	"github.com/gubsky90/spubtream/v3"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -44,14 +43,14 @@ func main() {
 
 	consumer := &Consumer{}
 
-	stream := way.NewStream[*TestMessage, any]()
+	stream := spubtream.NewStream[*TestMessage, any]()
 	stream.Start(consumer.OnMessage)
 	go metrics(stream.Stats)
 
 	ts := time.Now()
 	for i := 0; i < 1000000; i++ {
-		_ = stream.Sub(&Client{}, stream.Last,
-			"all",
+		stream.Sub(&Client{},
+			// "all",
 			fmt.Sprintf("role#%d", i%10),
 			fmt.Sprintf("user#%d", i%100000),
 			// fmt.Sprintf("conn#%d", i),
@@ -78,21 +77,21 @@ func main() {
 
 	go func() {
 		p := 0
-		ctx := context.Background()
 		for {
 			p++
 			msg := messages[p%len(messages)]
-			_ = stream.Pub(ctx, msg, msg.Tags...)
-			if p%len(messages) == 0 {
-				time.Sleep(time.Second * 10)
-			}
+			time.Sleep(time.Millisecond / 100)
+			stream.Pub(msg, msg.Tags...)
+			//if p%len(messages) == 0 {
+			//	time.Sleep(time.Second * 10)
+			//}
 		}
 	}()
 
 	time.Sleep(time.Hour)
 }
 
-func metrics(fn func() way.Stats) {
+func metrics(fn func() spubtream.Stats) {
 	messages := prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "spubtream_messages",
 	})
@@ -120,6 +119,9 @@ func metrics(fn func() way.Stats) {
 	for {
 		time.Sleep(time.Second)
 		stats := fn()
+
+		fmt.Printf("%#v\n", stats)
+
 		messages.Set(float64(stats.Messages))
 		subscriptions.Set(float64(stats.Subscriptions))
 		published.Set(float64(stats.Published))
