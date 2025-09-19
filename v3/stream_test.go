@@ -7,7 +7,13 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"unsafe"
 )
+
+func Test_Example_002(t *testing.T) {
+	fmt.Println("Key", unsafe.Sizeof(Key[any]{}))
+	fmt.Println("Subscription", unsafe.Sizeof(Subscription[any]{}))
+}
 
 func Test_Example_001(t *testing.T) {
 	stream := NewStream[string, int]()
@@ -141,16 +147,16 @@ func (sub *Subscription[R]) MarshalJSON() ([]byte, error) {
 	})
 }
 
-func (root *TagRoot[R]) MarshalJSON() ([]byte, error) {
+func (key *Key[R]) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]any{
-		"msgIDs":        root.msgIDs,
+		"msgIDs":        key.msgIDs,
 		"subscriptions": "...", // root.subscriptions,
 	})
 }
 
-func (tr *TagReceiver[R]) MarshalJSON() ([]byte, error) {
+func (tr *KeySub[R]) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]any{
 		"next":         tr.next,
-		"subscription": tr.subscription,
+		"subscription": tr.sub,
 	})
 }
