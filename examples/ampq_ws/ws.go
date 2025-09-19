@@ -4,14 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/gobwas/ws/wsutil"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/gubsky90/spubtream/v2"
+	"github.com/gubsky90/spubtream/v3"
 )
 
-type Stream = spubtream.Stream[[]byte, net.Conn]
+type Stream = spubtream.Stream[net.Conn, []byte]
 
 func auth(conn net.Conn) ([]string, error) {
 	_ = conn.SetReadDeadline(time.Now().Add(time.Second * 2))
@@ -27,6 +28,8 @@ func auth(conn net.Conn) ([]string, error) {
 	if err := json.Unmarshal(msg, &authMsg); err != nil {
 		return nil, err
 	}
+
+	return strings.Split(authMsg.Token, ","), nil
 
 	var claims struct {
 		jwt.RegisteredClaims

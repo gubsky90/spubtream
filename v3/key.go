@@ -2,13 +2,12 @@ package spubtream
 
 import (
 	"sort"
-	"sync"
 )
 
 type Key[R comparable] struct {
-	sync.Mutex
-	head   *KeySub[R]
-	msgIDs []int
+	lockSlot byte
+	head     *KeySub[R]
+	msgIDs   []int64
 }
 
 type KeySub[R comparable] struct {
@@ -16,7 +15,7 @@ type KeySub[R comparable] struct {
 	sub  *Subscription[R]
 }
 
-func (key *Key[R]) NextMessage(offset int) (_ int, _ bool) {
+func (key *Key[R]) NextMessage(offset int64) (_ int64, _ bool) {
 	l := len(key.msgIDs)
 	n := sort.Search(l, func(i int) bool {
 		return key.msgIDs[i] > offset

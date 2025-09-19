@@ -16,7 +16,7 @@ import (
 
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
-	"github.com/gubsky90/spubtream/v2"
+	"github.com/gubsky90/spubtream/v3"
 	// "github.com/golang-jwt/jwt/v5"
 )
 
@@ -32,8 +32,8 @@ func run(ctx context.Context) error {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 
-	stream := spubtream.NewStream[[]byte, net.Conn]()
-	stream.StartDynamicPool(func(msg []byte, conn net.Conn) {
+	stream := spubtream.NewStream[net.Conn, []byte]()
+	stream.Start(func(conn net.Conn, msg []byte) {
 		_ = wsutil.WriteServerText(conn, msg)
 	})
 
@@ -65,7 +65,7 @@ func run(ctx context.Context) error {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		_ = stream.Pub(r.Context(), []byte(body.Payload), body.Tags...)
+		stream.Pub([]byte(body.Payload), body.Tags...)
 	})
 	// mux.Handle("/ws", WS(stream))
 
@@ -126,7 +126,7 @@ func handleWS(stream *Stream, conn net.Conn) {
 
 	fmt.Println(tags)
 
-	_ = stream.Sub(conn, stream.Last, tags...)
+	stream.Sub(conn, tags...)
 	defer stream.UnSub(conn)
 
 	for {

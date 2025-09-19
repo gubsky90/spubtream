@@ -16,7 +16,7 @@ func Test_Example_002(t *testing.T) {
 }
 
 func Test_Example_001(t *testing.T) {
-	stream := NewStream[string, int]()
+	stream := NewStream[int, string]()
 	stream.Sub(1, "one", "two")
 	stream.Pub("msg1", "one")
 	stream.Pub("msg2", "two")
@@ -56,7 +56,7 @@ func TestName(t *testing.T) {
 		},
 	}
 
-	stream := NewStream[string, *Client]()
+	stream := NewStream[*Client, string]()
 	var wg sync.WaitGroup
 	for _, client := range clients {
 		client := client
@@ -104,7 +104,7 @@ func TestName(t *testing.T) {
 }
 
 func BenchmarkPub(b *testing.B) {
-	stream := NewStream[string, int]()
+	stream := NewStream[int, string]()
 	for i := 0; i < 100000; i++ {
 		stream.Sub(i, "tag")
 	}
