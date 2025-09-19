@@ -1,15 +1,6 @@
 package spubtream
 
-type Queue[R comparable] struct {
-	in  chan *Subscription[R]
-	out chan *Subscription[R]
-}
-
-func (q *Queue[R]) Enq(sub *Subscription[R]) {
-	q.in <- sub
-}
-
-func (q *Queue[R]) loop() {
+func loop[R comparable](qin, qout chan *Subscription[R]) {
 	var head, tail, cur *Subscription[R]
 	var out chan *Subscription[R]
 
@@ -26,10 +17,10 @@ func (q *Queue[R]) loop() {
 					head = nil
 				}
 			}
-		case sub := <-q.in:
+		case sub := <-qin:
 			if cur == nil {
 				cur = sub
-				out = q.out
+				out = qout
 			} else {
 				// add to list
 				if tail == nil {
@@ -41,13 +32,4 @@ func (q *Queue[R]) loop() {
 			}
 		}
 	}
-}
-
-func NewQueue[R comparable]() *Queue[R] {
-	q := &Queue[R]{
-		in:  make(chan *Subscription[R]),
-		out: make(chan *Subscription[R]),
-	}
-	go q.loop()
-	return q
 }

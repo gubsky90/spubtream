@@ -17,7 +17,9 @@ type Subscription[R comparable] struct {
 }
 
 type Stream[M any, R comparable] struct {
-	queue    *Queue[R]
+	in  chan *Subscription[R]
+	out chan *Subscription[R]
+
 	messages *Messages[M]
 
 	mx            sync.Mutex
@@ -122,7 +124,7 @@ func (stream *Stream[M, R]) Pub(msg M, tags ...string) {
 		for cur := root.subscriptions; cur != nil; cur = cur.next {
 			if atomic.CompareAndSwapInt64(&cur.subscription.offset, -1, msgID) {
 				used++
-				stream.queue.Enq(cur.subscription)
+				stream.in <- cur.subscription
 			}
 		}
 		mx.Unlock()
@@ -151,7 +153,7 @@ func (stream *Stream[M, R]) Done(sub *Subscription[R]) {
 	}
 	if atomic.CompareAndSwapInt64(&sub.offset, offset, next) && next != -1 {
 		stream.messages.Used(sub.offset, +1)
-		stream.queue.Enq(sub)
+		stream.in <- sub
 	}
 	stream.messages.Used(offset, -1)
 }
@@ -159,7 +161,7 @@ func (stream *Stream[M, R]) Done(sub *Subscription[R]) {
 func (stream *Stream[M, R]) Start(fn func(R, M)) {
 	for i := 0; i < 10; i++ {
 		go func() {
-			for sub := range stream.queue.out {
+			for sub := range stream.out {
 				atomic.AddInt64(&stream.stats.Received, 1)
 				fn(sub.receiver, stream.messages.Get(sub.offset))
 				stream.Done(sub)
@@ -199,14 +201,19 @@ func (stream *Stream[M, R]) rootMutex(root *TagRoot[R]) *sync.RWMutex {
 }
 
 func NewStream[M any, R comparable]() *Stream[M, R] {
+
 	stream := &Stream[M, R]{
+		in:            make(chan *Subscription[R]),
+		out:           make(chan *Subscription[R]),
 		subscriptions: map[R]*Subscription[R]{},
 		tags:          map[string]*TagRoot[R]{},
 		messages: &Messages[M]{
 			offset: 1000,
 		},
-		queue: NewQueue[R](),
 	}
+
+	go loop[R](stream.in, stream.out)
+	go loop[R](stream.in, stream.out)
 
 	go func() {
 		for {
