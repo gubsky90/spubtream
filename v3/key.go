@@ -5,7 +5,7 @@ import (
 )
 
 type Key[R comparable] struct {
-	lockSlot byte
+	lockSlot uint8
 	head     *KeySub[R]
 	msgIDs   []int64
 }

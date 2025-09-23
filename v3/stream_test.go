@@ -7,13 +7,8 @@ import (
 	"slices"
 	"sync"
 	"testing"
-	"unsafe"
+	"time"
 )
-
-func Test_Example_002(t *testing.T) {
-	fmt.Println("Key", unsafe.Sizeof(Key[any]{}))
-	fmt.Println("Subscription", unsafe.Sizeof(Subscription[any]{}))
-}
 
 func Test_Example_001(t *testing.T) {
 	stream := NewStream[int, string]()
@@ -28,6 +23,21 @@ func Test_Example_001(t *testing.T) {
 		fmt.Println(id, msg)
 	})
 	wg.Wait()
+}
+
+func TestName2(t *testing.T) {
+	stream := NewStream[int, int]()
+	stream.Start(func(receiver int, message int) {
+		fmt.Println(receiver, message)
+	})
+	go func() {
+		stream.Sub(1, "1")
+		stream.Pub(1, "1")
+		stream.ReSub(1, []string{"11"}, []string{"1"})
+		stream.Pub(1, "11")
+		stream.UnSub(1)
+	}()
+	time.Sleep(time.Second)
 }
 
 func TestName(t *testing.T) {

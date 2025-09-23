@@ -1,6 +1,8 @@
 package spubtream
 
-import "sync"
+import (
+	"sync"
+)
 
 type Messages[M any] struct {
 	sync.RWMutex
@@ -11,10 +13,27 @@ type Messages[M any] struct {
 
 func (m *Messages[M]) Add(msg M, used int) int64 {
 	m.Lock()
-	id := m.offset + int64(len(m.messages))
+
+	l := int64(len(m.messages))
+	id := m.offset + l
+	if l > 0 && l == int64(cap(m.messages)) && m.used[0] == 0 {
+		var pad int64 = 1
+		for ; pad < l && m.used[pad] == 0; pad++ {
+		}
+		n := copy(m.messages, m.messages[pad:])
+		copy(m.used, m.used[pad:])
+		clear(m.messages[n:])
+		m.messages = m.messages[:n]
+		m.used = m.used[:n]
+		m.offset += pad
+	}
+
 	m.messages = append(m.messages, msg)
 	m.used = append(m.used, used)
 	m.Unlock()
+
+	// fmt.Println("len", len(m.messages), "cap", cap(m.messages))
+
 	return id
 }
 
