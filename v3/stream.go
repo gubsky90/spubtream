@@ -4,6 +4,7 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type Subscription[R comparable] struct {
@@ -115,7 +116,7 @@ func (stream *Stream[R, M]) ReSub(receiver R, add, remove []string) {
 }
 
 func (stream *Stream[R, M]) Start(fn func(R, M)) {
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 32; i++ {
 		go stream.worker(fn)
 	}
 }
@@ -170,13 +171,21 @@ func NewStream[R comparable, M any]() *Stream[R, M] {
 		subscriptions: map[R]*Subscription[R]{},
 		tags:          map[string]*Key[R]{},
 		messages: &Messages[M]{
-			offset: 1000,
+			offset:   1000,
+			messages: make([]M, 0, 1024),
+			used:     make([]int, 0, 1024),
 		},
 	}
 
-	for i := 0; i < 8; i++ {
+	for i := 0; i < 16; i++ {
 		go loop[R](stream.in, stream.out)
 	}
+
+	var t *time.Timer
+	t = time.AfterFunc(time.Second, func() {
+		stream.cleanup()
+		t.Reset(time.Second)
+	})
 
 	return stream
 }

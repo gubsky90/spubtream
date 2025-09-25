@@ -11,7 +11,7 @@ type Messages[M any] struct {
 	used     []int
 }
 
-func (m *Messages[M]) Add(msg M, used int) int64 {
+func (m *Messages[M]) Add(msg M, used int) (int64, int64) {
 	m.Lock()
 
 	l := int64(len(m.messages))
@@ -34,7 +34,7 @@ func (m *Messages[M]) Add(msg M, used int) int64 {
 
 	// fmt.Println("len", len(m.messages), "cap", cap(m.messages))
 
-	return id
+	return id, l
 }
 
 func (m *Messages[M]) Used(id int64, delta int) {
@@ -49,28 +49,8 @@ func (m *Messages[M]) Get(id int64) M {
 	return m.messages[id-m.offset]
 }
 
-func (m *Messages[M]) GetDrop() (drop int, dropOffset int64) {
+func (m *Messages[M]) Offset() int64 {
 	m.RLock()
 	defer m.RUnlock()
-	if len(m.messages) == 0 {
-		return
-	}
-	for _, count := range m.used {
-		if count > 0 {
-			break
-		}
-		drop++
-	}
-	return drop, m.offset + int64(drop)
-}
-
-func (m *Messages[M]) Drop(drop int) {
-	m.Lock()
-	n := copy(m.messages, m.messages[drop:])
-	copy(m.used, m.used[drop:])
-	clear(m.messages[n:])
-	m.messages = m.messages[:n]
-	m.used = m.used[:n]
-	m.offset += int64(drop)
-	m.Unlock()
+	return m.offset
 }

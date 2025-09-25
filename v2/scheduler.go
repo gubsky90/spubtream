@@ -83,7 +83,7 @@ func (stream *Stream[M, R]) chanWorker() {
 	gc := time.NewTicker(time.Second)
 	defer gc.Stop()
 
-	messagesLimit := 10000
+	messagesLimit := 100000
 	pub := stream.pub
 
 	for {

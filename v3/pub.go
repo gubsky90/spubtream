@@ -1,11 +1,13 @@
 package spubtream
 
 import (
+	"fmt"
 	"slices"
 	"sync/atomic"
 )
 
 func (stream *Stream[R, M]) Pub(msg M, tags ...string) {
+	atomic.AddInt64(&stream.stats.Published, 1)
 	if len(tags) == 0 {
 		return
 	}
@@ -29,7 +31,10 @@ func (stream *Stream[R, M]) Pub(msg M, tags ...string) {
 	}
 
 	var used int
-	msgID := stream.messages.Add(msg, 1)
+	msgID, l := stream.messages.Add(msg, 1)
+
+	atomic.StoreInt64(&stream.stats.Messages, l)
+
 	for _, key := range stream.tmpKeys {
 		stream.keyMsgLocks[key.lockSlot].Lock()
 		key.msgIDs = append(key.msgIDs, msgID)
@@ -42,34 +47,26 @@ func (stream *Stream[R, M]) Pub(msg M, tags ...string) {
 			}
 		}
 	}
-	atomic.AddInt64(&stream.stats.Published, 1)
+
 	stream.messages.Used(msgID, used-1)
 }
 
-//func (stream *Stream[R, M]) cleanup() {
-//	stream.mx.Lock()
-//	defer stream.mx.Unlock()
-//
-//	drop, dropOffset := stream.messages.GetDrop()
-//	if drop < 5000 {
-//		return
-//	}
-//
-//	fmt.Println("cleanup", drop, dropOffset)
-//
-//	for tag, key := range stream.tags {
-//		if !stream.keyHasSub(key) {
-//			delete(stream.tags, tag)
-//			continue
-//		}
-//
-//		stream.keyMsgLocks[key.lockSlot].Lock()
-//		if len(key.msgIDs) > 0 && key.msgIDs[0] <= dropOffset {
-//			i, _ := slices.BinarySearch(key.msgIDs, dropOffset) // TODO: check if dropOffset not found
-//			key.msgIDs = key.msgIDs[:copy(key.msgIDs, key.msgIDs[i:])]
-//		}
-//		stream.keyMsgLocks[key.lockSlot].Unlock()
-//	}
-//
-//	stream.messages.Drop(drop)
-//}
+func (stream *Stream[R, M]) cleanup() {
+	dropOffset := stream.messages.Offset()
+	fmt.Println("cleanup", dropOffset)
+
+	stream.mx.Lock()
+	for tag, key := range stream.tags {
+		stream.keyMsgLocks[key.lockSlot].Lock()
+		if key.head == nil {
+
+			delete(stream.tags, tag)
+
+		} else if len(key.msgIDs) > 0 && key.msgIDs[0] <= dropOffset {
+			i, _ := slices.BinarySearch(key.msgIDs, dropOffset) // TODO: check if dropOffset not found
+			key.msgIDs = key.msgIDs[:copy(key.msgIDs, key.msgIDs[i:])]
+		}
+		stream.keyMsgLocks[key.lockSlot].Unlock()
+	}
+	stream.mx.Unlock()
+}

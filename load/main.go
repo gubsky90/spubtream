@@ -43,7 +43,7 @@ func main() {
 
 	consumer := &Consumer{}
 
-	stream := spubtream.NewStream[*TestMessage, any]()
+	stream := spubtream.NewStream[any, *TestMessage]()
 	stream.Start(consumer.OnMessage)
 	go metrics(stream.Stats)
 
@@ -52,20 +52,20 @@ func main() {
 		stream.Sub(&Client{},
 			// "all",
 			fmt.Sprintf("role#%d", i%10),
-			fmt.Sprintf("user#%d", i%100000),
+			// fmt.Sprintf("user#%d", i%100000),
 			// fmt.Sprintf("conn#%d", i),
 		)
 	}
 	fmt.Println("Sub done", time.Since(ts))
 
 	var tags []string
-	tags = append(tags, "all")
+	//tags = append(tags, "all")
 	for i := 0; i < 10; i++ {
 		tags = append(tags, fmt.Sprintf("role#%d", i))
 	}
-	for i := 0; i < 100000; i++ {
-		tags = append(tags, fmt.Sprintf("user#%d", i))
-	}
+	//for i := 0; i < 100000; i++ {
+	//	tags = append(tags, fmt.Sprintf("user#%d", i))
+	//}
 	//for i := 0; i < 1000000; i++ {
 	//	tags = append(tags, fmt.Sprintf("conn#%d", i))
 	//}
@@ -80,7 +80,7 @@ func main() {
 		for {
 			p++
 			msg := messages[p%len(messages)]
-			time.Sleep(time.Millisecond / 100)
+			// time.Sleep(time.Millisecond / 100)
 			stream.Pub(msg, msg.Tags...)
 			//if p%len(messages) == 0 {
 			//	time.Sleep(time.Second * 10)
@@ -92,6 +92,22 @@ func main() {
 }
 
 func metrics(fn func() spubtream.Stats) {
+	var prev spubtream.Stats
+	for {
+		time.Sleep(time.Second * 2)
+		next := fn()
+
+		fmt.Println(
+			"Messages", next.Messages,
+			"Received", (next.Received-prev.Received)/2,
+			"Published", (next.Published-prev.Published)/2,
+		)
+
+		prev = next
+	}
+}
+
+func _metrics(fn func() spubtream.Stats) {
 	messages := prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "spubtream_messages",
 	})
