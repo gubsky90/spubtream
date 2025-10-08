@@ -8,7 +8,7 @@ import (
 
 	_ "net/http/pprof"
 
-	"github.com/gubsky90/spubtream/v3"
+	"github.com/gubsky90/spubtream/v6"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -36,6 +36,9 @@ func (c *Consumer) OnMessage(client any, msg *TestMessage) {
 }
 
 func main() {
+	//runtime.SetBlockProfileRate(1)
+	//runtime.SetMutexProfileFraction(1)
+
 	go func() {
 		http.Handle("/metrics", promhttp.Handler())
 		log.Fatal(http.ListenAndServe(":9100", nil))
@@ -49,23 +52,26 @@ func main() {
 
 	ts := time.Now()
 	for i := 0; i < 1000000; i++ {
+
 		stream.Sub(&Client{},
-			// "all",
+			"all",
 			fmt.Sprintf("role#%d", i%10),
-			// fmt.Sprintf("user#%d", i%100000),
-			// fmt.Sprintf("conn#%d", i),
+			fmt.Sprintf("user#%d", i%100000),
+			fmt.Sprintf("conn#%d", i),
 		)
 	}
 	fmt.Println("Sub done", time.Since(ts))
 
+	// time.Sleep(time.Hour)
+
 	var tags []string
-	//tags = append(tags, "all")
-	for i := 0; i < 10; i++ {
-		tags = append(tags, fmt.Sprintf("role#%d", i))
-	}
-	//for i := 0; i < 100000; i++ {
-	//	tags = append(tags, fmt.Sprintf("user#%d", i))
+	// tags = append(tags, "all")
+	//for i := 0; i < 10; i++ {
+	//	tags = append(tags, fmt.Sprintf("role#%d", i))
 	//}
+	for i := 0; i < 100000; i++ {
+		tags = append(tags, fmt.Sprintf("user#%d", i))
+	}
 	//for i := 0; i < 1000000; i++ {
 	//	tags = append(tags, fmt.Sprintf("conn#%d", i))
 	//}
@@ -75,14 +81,22 @@ func main() {
 		messages[i] = &TestMessage{Tags: []string{tag}}
 	}
 
+	//messages := []*TestMessage{
+	//	{Tags: []string{"role#0", "role#1", "role#2"}},
+	//	{Tags: []string{"role#2", "role#3", "role#4"}},
+	//	{Tags: []string{"role#5", "role#6", "role#7"}},
+	//	{Tags: []string{"role#8", "role#9"}},
+	//}
+
 	go func() {
 		p := 0
 		for {
 			p++
 			msg := messages[p%len(messages)]
-			// time.Sleep(time.Millisecond / 100)
+			// time.Sleep(time.Millisecond * 100)
 			stream.Pub(msg, msg.Tags...)
-			//if p%len(messages) == 0 {
+			//time.Sleep(time.Second * 10)
+			//if p%1000 == 0 {
 			//	time.Sleep(time.Second * 10)
 			//}
 		}
