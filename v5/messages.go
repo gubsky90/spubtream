@@ -1,6 +1,7 @@
 package spubtream
 
 import (
+	"runtime"
 	"slices"
 	"sort"
 	"sync"
@@ -17,11 +18,12 @@ type Messages[K comparable, M any] struct {
 }
 
 func NewMessages[K comparable, M any]() *Messages[K, M] {
+	size := 1024
 	return &Messages[K, M]{
 		offset:   1000,
-		messages: make([]M, 0, 64),
-		used:     make([]int32, 0, 64),
-		keys:     make(map[K][]int64, 64),
+		messages: make([]M, 0, size),
+		used:     make([]int32, 0, size),
+		keys:     make(map[K][]int64, size),
 	}
 }
 
@@ -58,10 +60,17 @@ func (m *Messages[K, M]) NextMessage(current int64, target *atomic.Int64, keys [
 
 func (m *Messages[K, M]) Add(msg M, used int32, keys []K) (int64, int64) {
 	m.Lock()
-	defer m.Unlock()
 
 	l := int64(len(m.messages))
 	id := m.offset + l
+	for l > 0 && l == int64(cap(m.messages)) && m.used[0] != 0 {
+		m.Unlock()
+		runtime.Gosched()
+		m.Lock()
+	}
+
+	defer m.Unlock()
+
 	if l > 0 && l == int64(cap(m.messages)) && m.used[0] == 0 {
 		var pad int64 = 1
 		for ; pad < l && m.used[pad] == 0; pad++ {

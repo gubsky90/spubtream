@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"time"
@@ -14,25 +15,12 @@ import (
 )
 
 type TestMessage struct {
-	ID      int
-	Time    time.Time
 	Tags    []string
-	Payload int
-}
-
-func (t *TestMessage) MessageTags() []string {
-	return t.Tags
-}
-
-type Consumer struct {
+	Payload []byte
 }
 
 type Client struct {
-	ID int
-}
-
-func (c *Consumer) OnMessage(client any, msg *TestMessage) {
-	// time.Sleep(time.Duration(rand.Intn(10)) * time.Millisecond)
+	conn io.Writer
 }
 
 func main() {
@@ -44,16 +32,16 @@ func main() {
 		log.Fatal(http.ListenAndServe(":9100", nil))
 	}()
 
-	consumer := &Consumer{}
-
-	stream := spubtream.NewStream[any, *TestMessage]()
-	stream.Start(consumer.OnMessage)
+	stream := spubtream.NewStream[*Client, *TestMessage]()
+	stream.Start(func(client *Client, msg *TestMessage) {
+		// time.Sleep(time.Millisecond)
+		//client.conn.Write(msg.Payload)
+	})
 	go metrics(stream.Stats)
 
 	ts := time.Now()
 	for i := 0; i < 1000000; i++ {
-
-		stream.Sub(&Client{},
+		stream.Sub(&Client{conn: io.Discard},
 			"all",
 			fmt.Sprintf("role#%d", i%10),
 			fmt.Sprintf("user#%d", i%100000),
@@ -88,19 +76,24 @@ func main() {
 	//	{Tags: []string{"role#8", "role#9"}},
 	//}
 
-	go func() {
-		p := 0
-		for {
-			p++
-			msg := messages[p%len(messages)]
-			// time.Sleep(time.Millisecond * 100)
-			stream.Pub(msg, msg.Tags...)
-			//time.Sleep(time.Second * 10)
-			//if p%1000 == 0 {
-			//	time.Sleep(time.Second * 10)
-			//}
-		}
-	}()
+	stream.Pub(&TestMessage{}, "user#1")
+	stream.Pub(&TestMessage{}, "user#2")
+	stream.Pub(&TestMessage{}, "user#3")
+	stream.Pub(&TestMessage{}, "user#4")
+
+	//go func() {
+	//	p := 0
+	//	for {
+	//		p++
+	//		msg := messages[p%len(messages)]
+	//		// time.Sleep(time.Millisecond * 100)
+	//		stream.Pub(msg, msg.Tags...)
+	//		//time.Sleep(time.Second * 10)
+	//		//if p%500 == 0 {
+	//		//	time.Sleep(time.Second * 10)
+	//		//}
+	//	}
+	//}()
 
 	time.Sleep(time.Hour)
 }

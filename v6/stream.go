@@ -8,7 +8,7 @@ type Stream[R comparable, M any] struct {
 	tmpKeys       []*Key[R]
 	tags          map[string]*Key[R]
 	messages      *Messages[*Key[R], M]
-	in            func([2]*Subscription[R])
+	in            func(first, last *Subscription[R])
 	out           chan *Subscription[R]
 	subscriptions map[R]*Subscription[R]
 	stats         Stats
@@ -71,22 +71,10 @@ func (stream *Stream[R, M]) Pub(msg M, tags ...string) {
 	}
 
 	if first != nil {
-		stream.in([2]*Subscription[R]{first, last})
+		stream.in(first, last)
 	}
 
 	stream.messages.Used(id, used-1)
-}
-
-func (stream *Stream[R, M]) worker(fn func(R, M)) {
-	for sub := range stream.out {
-		atomic.AddInt64(&stream.stats.Received, 1)
-
-		current := sub.offset.Load()
-		fn(sub.receiver, stream.messages.Get(current))
-		if stream.messages.NextMessage(current, &sub.offset, sub.keys) {
-			stream.in([2]*Subscription[R]{sub, sub})
-		}
-	}
 }
 
 func (stream *Stream[R, M]) Start(fn func(R, M)) {
@@ -99,9 +87,12 @@ func (stream *Stream[R, M]) Start(fn func(R, M)) {
 
 		current := sub.offset.Load()
 		fn(sub.receiver, stream.messages.Get(current))
-		if stream.messages.NextMessage(current, &sub.offset, sub.keys) {
-			stream.in([2]*Subscription[R]{sub, sub})
-		}
+
+		stream.in(sub, sub)
+
+		//if stream.messages.NextMessage(current, &sub.offset, sub.keys) {
+		//	stream.in(sub, sub)
+		//}
 	})
 }
 

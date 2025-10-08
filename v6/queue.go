@@ -1,80 +1,129 @@
 package spubtream
 
 import (
-	"runtime"
 	"sync"
+	"sync/atomic"
 )
 
-func loop[R comparable](qout chan *Subscription[R]) func([2]*Subscription[R]) {
-	var tail, cur *Subscription[R]
+func loop2[R comparable](qout func(*Subscription[R])) func(first, last *Subscription[R]) {
+	var size int32 = 2
+	ins := make([]func(first, last *Subscription[R]), size)
+	for i := 0; i < int(size); i++ {
+		ins[i] = _loop2(64, qout)
+	}
 
-	var mx, wait sync.Mutex
-	wait.Lock()
+	var c atomic.Int32
 
-	go func() {
-		for {
-			mx.Lock()
-			if cur == nil {
-				mx.Unlock()
-				wait.Lock()
-				mx.Lock()
-			}
-
-			sub := cur
-			cur, cur.next = cur.next, nil
-			mx.Unlock()
-			qout <- sub
-		}
-	}()
-
-	return func(sub [2]*Subscription[R]) {
-		mx.Lock()
-		if cur == nil {
-			cur = sub[0]
-			wait.TryLock()
-			wait.Unlock()
-		} else {
-			tail.next = sub[0]
-		}
-		tail = sub[1]
-		mx.Unlock()
+	return func(first, last *Subscription[R]) {
+		ins[c.Add(1)%size](first, last)
 	}
 }
 
-func loop2[R comparable](qout func(*Subscription[R])) func([2]*Subscription[R]) {
+//func loop2[R comparable](qout func(*Subscription[R])) func(first, last *Subscription[R]) {
+//	var size int32 = 2
+//	sched := &Sched[R]{
+//		size: size,
+//		ins:  make([]*QP[R], size),
+//	}
+//	for i := 0; i < int(size); i++ {
+//		sched.ins[i] = &QP[R]{
+//			cond: sync.NewCond(&sync.Mutex{}),
+//			fn:   qout,
+//		}
+//		sched.ins[i].Start(64)
+//	}
+//
+//	return sched.Put
+//}
+
+type Sched[R comparable] struct {
+	c    atomic.Int32
+	size int32
+	ins  []*QP[R]
+}
+
+func (s *Sched[R]) Put(first, last *Subscription[R]) {
+	// s.ins[rand.Intn(2)].Put(first, last)
+	s.ins[s.c.Add(1)%s.size].Put(first, last)
+}
+
+type QP[R comparable] struct {
+	tail, cur *Subscription[R]
+	cond      *sync.Cond
+	fn        func(*Subscription[R])
+}
+
+func (qp *QP[R]) send() {
+	var sub *Subscription[R]
+	qp.cond.L.Lock()
+	for qp.cur == nil {
+		qp.cond.Wait()
+	}
+	sub, qp.cur, qp.cur.next = qp.cur, qp.cur.next, nil
+	if qp.cur != nil {
+		qp.cond.Signal()
+	}
+	qp.cond.L.Unlock()
+	qp.fn(sub)
+}
+
+func (qp *QP[R]) Start(size int) {
+	for i := 0; i < size; i++ {
+		go func() {
+			for {
+				qp.send()
+			}
+		}()
+	}
+}
+
+func (qp *QP[R]) Put(first, last *Subscription[R]) {
+	qp.cond.L.Lock()
+	if qp.cur == nil {
+		qp.cur = first
+		qp.cond.Signal()
+	} else {
+		qp.tail.next = first
+	}
+	qp.tail = last
+	qp.cond.L.Unlock()
+}
+
+func _loop2[R comparable](size int, qout func(*Subscription[R])) func(first, last *Subscription[R]) {
 	var tail, cur *Subscription[R]
 
 	cond := sync.NewCond(&sync.Mutex{})
 
-	for i := 0; i < 64; i++ {
+	for i := 0; i < size; i++ {
 		go func() {
-			var sub *Subscription[R]
 			for {
+				var sub *Subscription[R]
 				cond.L.Lock()
 				for cur == nil {
 					cond.Wait()
 				}
-				sub = cur
-				cur, cur.next = cur.next, nil
+				sub, cur, cur.next = cur, cur.next, nil
+				if cur != nil {
+					cond.Signal()
+				}
 				cond.L.Unlock()
+
 				qout(sub)
 			}
 		}()
 	}
 
-	return func(sub [2]*Subscription[R]) {
-		if sub[0] != sub[1] {
-			runtime.Gosched()
-		}
-
+	return func(first, last *Subscription[R]) {
 		cond.L.Lock()
 		if cur == nil {
-			cur = sub[0]
+			cur = first
 			cond.Signal()
 		} else {
-			tail.next = sub[0]
+			tail.next = first
 		}
-		tail = sub[1]
+
+		tail = last
+
 		cond.L.Unlock()
 	}
 }

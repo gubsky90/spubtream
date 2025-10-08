@@ -90,7 +90,7 @@ func (stream *Stream[R, M]) worker(fn func(R, M)) {
 }
 
 func (stream *Stream[R, M]) Start(fn func(R, M)) {
-	for i := 0; i < 8; i++ {
+	for i := 0; i < 1024; i++ {
 		go stream.worker(fn)
 	}
 }
