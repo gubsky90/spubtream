@@ -32,10 +32,26 @@ func main() {
 		log.Fatal(http.ListenAndServe(":9100", nil))
 	}()
 
+	//{
+	//	l, err := net.Listen("tcp", ":9999")
+	//	if err != nil {
+	//		log.Fatal(err)
+	//	}
+	//	go func() {
+	//		c, _ := l.Accept()
+	//		io.Copy(io.Discard, c)
+	//	}()
+	//}
+	//
+	//conn, err := net.Dial("tcp", ":9999")
+	//if err != nil {
+	//	log.Fatal(err)
+	//}
+
 	stream := spubtream.NewStream[*Client, *TestMessage]()
 	stream.Start(func(client *Client, msg *TestMessage) {
-		time.Sleep(time.Millisecond)
-		//client.conn.Write(msg.Payload)
+		// time.Sleep(time.Millisecond)
+		client.conn.Write(msg.Payload)
 	})
 	go metrics(stream.Stats)
 
@@ -66,7 +82,7 @@ func main() {
 
 	messages := make([]*TestMessage, len(tags))
 	for i, tag := range tags {
-		messages[i] = &TestMessage{Tags: []string{tag}}
+		messages[i] = &TestMessage{Tags: []string{tag}, Payload: []byte("some data here")}
 	}
 
 	//messages := []*TestMessage{
@@ -79,6 +95,8 @@ func main() {
 	//for i := 0; i < 1024*8; i++ {
 	//	stream.Pub(&TestMessage{}, fmt.Sprintf("conn#%d", i))
 	//}
+
+	// stream.Pub(&TestMessage{}, "all")
 
 	go func() {
 		p := 0

@@ -6,47 +6,25 @@ import (
 	"sync/atomic"
 )
 
-func NewSched[R comparable](qout func(*Subscription[R])) *Sched[R] {
-	var size int32 = 32
-	sched := &Sched[R]{
-		size: size,
-		ins:  make([]*QP[R], size),
-	}
-	for i := 0; i < int(size); i++ {
-		sched.ins[i] = &QP[R]{
-			Cond: sync.Cond{L: &Spinlock{}},
-			// Cond: sync.Cond{L: &sync.Mutex{}},
-			fn: qout,
-		}
-		sched.ins[i].Start(1024 / int(size))
-	}
-	return sched
-}
-
-type Sched[R comparable] struct {
-	c    atomic.Int32
-	size int32
-	ins  []*QP[R]
-}
-
-func (s *Sched[R]) Put(first, last *Subscription[R]) {
-	// s.ins[rand.Intn(2)].Put(first, last)
-	s.ins[s.c.Add(1)%s.size].Put(first, last)
-}
-
 type QP[R comparable] struct {
 	sync.Cond
+	stop      atomic.Bool
+	wg        sync.WaitGroup
 	tail, cur *Subscription[R]
 	fn        func(*Subscription[R])
 }
 
 func (qp *QP[R]) send() {
-	var sub *Subscription[R]
 	qp.L.Lock()
 	for qp.cur == nil {
 		qp.Wait()
+		if qp.stop.Load() {
+			qp.L.Unlock()
+			return
+		}
 	}
-	sub, qp.cur = qp.cur, qp.cur.next
+	sub := qp.cur
+	qp.cur = sub.next
 	qp.L.Unlock()
 
 	if sub.next != nil {
@@ -58,13 +36,21 @@ func (qp *QP[R]) send() {
 }
 
 func (qp *QP[R]) Start(size int) {
+	qp.wg.Add(size)
 	for i := 0; i < size; i++ {
 		go func() {
-			for {
+			defer qp.wg.Done()
+			for !qp.stop.Load() {
 				qp.send()
 			}
 		}()
 	}
+}
+
+func (qp *QP[R]) Stop() {
+	qp.stop.Store(true)
+	qp.Broadcast()
+	qp.wg.Wait()
 }
 
 func (qp *QP[R]) Put(first, last *Subscription[R]) {

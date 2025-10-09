@@ -1,20 +1,21 @@
 package spubtream
 
 import (
+	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type Stream[R comparable, M any] struct {
 	tmpKeys       []*Key[R]
 	tags          map[string]*Key[R]
 	messages      *Messages[*Key[R], M]
-	in            *Sched[R]
+	in            *QP[R]
 	subscriptions map[R]*Subscription[R]
 	stats         Stats
 }
 
 type Subscription[R comparable] struct {
-	// last     int64
 	offset   atomic.Int64
 	keys     []*Key[R]
 	next     *Subscription[R]
@@ -77,14 +78,27 @@ func (stream *Stream[R, M]) Pub(msg M, tags ...string) {
 }
 
 func (stream *Stream[R, M]) Start(fn func(R, M)) {
-	stream.in = NewSched[R](func(sub *Subscription[R]) {
-		atomic.AddInt64(&stream.stats.Received, 1)
-		current := sub.offset.Load()
-		fn(sub.receiver, stream.messages.Get(current))
-		if stream.messages.NextMessage(current, &sub.offset, sub.keys) {
-			stream.in.Put(sub, sub)
-		}
-	})
+	stream.in = &QP[R]{
+		Cond: sync.Cond{L: &Spinlock{}},
+		// Cond: sync.Cond{L: &sync.Mutex{}},
+		fn: func(sub *Subscription[R]) {
+			start := time.Now()
+			for {
+				atomic.AddInt64(&stream.stats.Received, 1)
+				current := sub.offset.Load()
+				fn(sub.receiver, stream.messages.Get(current))
+				if stream.messages.NextMessage(current, &sub.offset, sub.keys) {
+					if time.Since(start) > time.Second {
+						stream.in.Put(sub, sub)
+					} else {
+						continue
+					}
+				}
+				break
+			}
+		},
+	}
+	stream.in.Start(1024)
 }
 
 func NewStream[R comparable, M any]() *Stream[R, M] {
