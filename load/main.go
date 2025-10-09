@@ -54,12 +54,12 @@ func main() {
 
 	var tags []string
 	// tags = append(tags, "all")
-	//for i := 0; i < 10; i++ {
-	//	tags = append(tags, fmt.Sprintf("role#%d", i))
-	//}
-	for i := 0; i < 100000; i++ {
-		tags = append(tags, fmt.Sprintf("user#%d", i))
+	for i := 0; i < 10; i++ {
+		tags = append(tags, fmt.Sprintf("role#%d", i))
 	}
+	//for i := 0; i < 100000; i++ {
+	//	tags = append(tags, fmt.Sprintf("user#%d", i))
+	//}
 	//for i := 0; i < 1000000; i++ {
 	//	tags = append(tags, fmt.Sprintf("conn#%d", i))
 	//}

@@ -8,8 +8,7 @@ type Stream[R comparable, M any] struct {
 	tmpKeys       []*Key[R]
 	tags          map[string]*Key[R]
 	messages      *Messages[*Key[R], M]
-	in            func(first, last *Subscription[R])
-	out           chan *Subscription[R]
+	in            *Sched[R]
 	subscriptions map[R]*Subscription[R]
 	stats         Stats
 }
@@ -71,40 +70,28 @@ func (stream *Stream[R, M]) Pub(msg M, tags ...string) {
 	}
 
 	if first != nil {
-		stream.in(first, last)
+		stream.in.Put(first, last)
 	}
 
 	stream.messages.Used(id, used-1)
 }
 
 func (stream *Stream[R, M]) Start(fn func(R, M)) {
-	//for i := 0; i < 8; i++ {
-	//	go stream.worker(fn)
-	//}
-
-	stream.in = loop2[R](func(sub *Subscription[R]) {
+	stream.in = NewSched[R](func(sub *Subscription[R]) {
 		atomic.AddInt64(&stream.stats.Received, 1)
-
 		current := sub.offset.Load()
 		fn(sub.receiver, stream.messages.Get(current))
-
-		// stream.in(sub, sub)
-
 		if stream.messages.NextMessage(current, &sub.offset, sub.keys) {
-			stream.in(sub, sub)
+			stream.in.Put(sub, sub)
 		}
 	})
 }
 
 func NewStream[R comparable, M any]() *Stream[R, M] {
 	stream := &Stream[R, M]{
-		out:           make(chan *Subscription[R], 64),
 		tags:          map[string]*Key[R]{},
 		subscriptions: map[R]*Subscription[R]{},
 		messages:      NewMessages[*Key[R], M](),
 	}
-
-	// stream.in = loop[R](stream.out)
-
 	return stream
 }
