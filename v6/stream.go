@@ -88,11 +88,11 @@ func (stream *Stream[R, M]) Start(fn func(R, M)) {
 		current := sub.offset.Load()
 		fn(sub.receiver, stream.messages.Get(current))
 
-		stream.in(sub, sub)
+		// stream.in(sub, sub)
 
-		//if stream.messages.NextMessage(current, &sub.offset, sub.keys) {
-		//	stream.in(sub, sub)
-		//}
+		if stream.messages.NextMessage(current, &sub.offset, sub.keys) {
+			stream.in(sub, sub)
+		}
 	})
 }
 

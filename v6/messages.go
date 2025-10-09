@@ -18,7 +18,7 @@ type Messages[K comparable, M any] struct {
 }
 
 func NewMessages[K comparable, M any]() *Messages[K, M] {
-	size := 1024 * 8
+	size := 1024
 	return &Messages[K, M]{
 		offset:   1000,
 		messages: make([]M, 0, size),

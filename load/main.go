@@ -34,7 +34,7 @@ func main() {
 
 	stream := spubtream.NewStream[*Client, *TestMessage]()
 	stream.Start(func(client *Client, msg *TestMessage) {
-		// time.Sleep(time.Millisecond)
+		time.Sleep(time.Millisecond)
 		//client.conn.Write(msg.Payload)
 	})
 	go metrics(stream.Stats)
@@ -76,24 +76,23 @@ func main() {
 	//	{Tags: []string{"role#8", "role#9"}},
 	//}
 
-	stream.Pub(&TestMessage{}, "user#1")
-	stream.Pub(&TestMessage{}, "user#2")
-	stream.Pub(&TestMessage{}, "user#3")
-	stream.Pub(&TestMessage{}, "user#4")
+	//for i := 0; i < 1024*8; i++ {
+	//	stream.Pub(&TestMessage{}, fmt.Sprintf("conn#%d", i))
+	//}
 
-	//go func() {
-	//	p := 0
-	//	for {
-	//		p++
-	//		msg := messages[p%len(messages)]
-	//		// time.Sleep(time.Millisecond * 100)
-	//		stream.Pub(msg, msg.Tags...)
-	//		//time.Sleep(time.Second * 10)
-	//		//if p%500 == 0 {
-	//		//	time.Sleep(time.Second * 10)
-	//		//}
-	//	}
-	//}()
+	go func() {
+		p := 0
+		for {
+			p++
+			msg := messages[p%len(messages)]
+			// time.Sleep(time.Millisecond * 100)
+			stream.Pub(msg, msg.Tags...)
+			//time.Sleep(time.Second * 10)
+			//if p%300 == 0 {
+			//	time.Sleep(time.Second * 10)
+			//}
+		}
+	}()
 
 	time.Sleep(time.Hour)
 }
