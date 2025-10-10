@@ -3,6 +3,7 @@ package spubtream
 import (
 	"encoding/json"
 	"os"
+	"sync/atomic"
 	"testing"
 )
 
@@ -31,6 +32,36 @@ func Benchmark_Messages_Add(b *testing.B) {
 	}
 }
 
+func Benchmark_Store_Next(b *testing.B) {
+	s := NewMessages[string, int]()
+
+	keys := []string{"one", "two", "three"}
+
+	for i := 0; i < 10; i++ {
+		s.Add(i, 0, keys)
+	}
+
+	var target atomic.Int64
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		s.NextMessage(1000, &target, keys)
+	}
+}
+
+func Benchmark_Store_Append(b *testing.B) {
+	s := NewMessages[string, int]()
+
+	keys := []string{"one", "two", "three"}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		s.Add(i, 0, keys)
+	}
+}
+
 func printJSON(v any) {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "\t")
@@ -45,6 +76,6 @@ func (m *Messages[K, M]) MarshalJSON() ([]byte, error) {
 		"messages": m.messages,
 		"used":     m.used,
 		"keys":     m.keys,
-		"pool":     m.pool,
+		// "pool":     m.pool,
 	})
 }

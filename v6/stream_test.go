@@ -3,11 +3,29 @@ package spubtream
 import (
 	"fmt"
 	"slices"
+	"sort"
 	"sync"
 	"testing"
 )
 
 func Test_Example_001(t *testing.T) {
+
+	{
+		ids := []int{3, 8, 10}
+		offset := 3
+
+		idx := sort.Search(len(ids), func(i int) bool { return ids[i] > offset })
+		if idx == len(ids) {
+			ids = ids[:0]
+		} else if idx > 0 {
+			ids = ids[:copy(ids, ids[idx:])]
+		}
+
+		fmt.Println(idx, ids, len(ids), cap(ids))
+
+		return
+	}
+
 	stream := NewStream[int, string]()
 	stream.Sub(1, "one", "two")
 	stream.Pub("msg1", "one")

@@ -16,7 +16,7 @@ web:
 	go tool pprof -http 127.0.0.1:8080 spubtream allocs.out
 
 some:
-	go tool pprof -seconds 10 http://127.0.0.1:9100/debug/pprof/profile
+	go tool pprof -seconds 5 http://127.0.0.1:9100/debug/pprof/profile
 	go tool pprof -seconds 10 http://127.0.0.1:9100/debug/pprof/block
 	go tool pprof -seconds 5 http://127.0.0.1:9100/debug/pprof/allocs
 	go tool pprof http://127.0.0.1:9100/debug/pprof/mutex

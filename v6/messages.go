@@ -14,7 +14,7 @@ type Messages[K comparable, M any] struct {
 	messages []M
 	used     []int32
 	keys     map[K][]int64
-	pool     [][]int64
+	// pool     [][]int64
 }
 
 func NewMessages[K comparable, M any]() *Messages[K, M] {
@@ -90,7 +90,7 @@ func (m *Messages[K, M]) Add(msg M, used int32, keys []K) (int64, int64) {
 					m.keys[key] = ids
 				} else {
 					delete(m.keys, key)
-					m.pool = append(m.pool, ids)
+					// m.pool = append(m.pool, ids)
 				}
 			}
 		}
@@ -101,14 +101,14 @@ func (m *Messages[K, M]) Add(msg M, used int32, keys []K) (int64, int64) {
 
 	for _, key := range keys {
 		data := m.keys[key]
-		if data == nil {
-			if len(m.pool) > 0 {
-				data = m.pool[len(m.pool)-1]
-				m.pool = m.pool[:len(m.pool)-1]
-			} else {
-				data = make([]int64, 0, 1)
-			}
-		}
+		//if data == nil {
+		//	if len(m.pool) > 0 {
+		//		data = m.pool[len(m.pool)-1]
+		//		m.pool = m.pool[:len(m.pool)-1]
+		//	} else {
+		//		data = make([]int64, 0, 1)
+		//	}
+		//}
 		m.keys[key] = append(data, id)
 	}
 

@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"runtime"
 	"time"
 
 	_ "net/http/pprof"
@@ -117,18 +118,28 @@ func main() {
 
 func metrics(fn func() spubtream.Stats) {
 	var prev spubtream.Stats
+	totalAlloc := TotalAlloc()
 	for {
 		time.Sleep(time.Second * 2)
 		next := fn()
+		nextTotalAlloc := TotalAlloc()
 
 		fmt.Println(
 			"Messages", next.Messages,
 			"Received", (next.Received-prev.Received)/2,
 			"Published", (next.Published-prev.Published)/2,
+			"TotalAlloc", nextTotalAlloc-totalAlloc,
 		)
 
 		prev = next
+		totalAlloc = nextTotalAlloc
 	}
+}
+
+func TotalAlloc() uint64 {
+	var mstats runtime.MemStats
+	runtime.ReadMemStats(&mstats)
+	return mstats.TotalAlloc
 }
 
 func _metrics(fn func() spubtream.Stats) {
