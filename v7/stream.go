@@ -1,6 +1,7 @@
 package spubtream
 
 import (
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,22 +23,32 @@ type Subscription[R comparable] struct {
 	receiver R
 }
 
+// Sub to tags
 func (stream *Stream[R, M]) Sub(receiver R, tags ...string) {
-	sub := &Subscription[R]{
-		keys:     make([]*Key[R], len(tags)),
-		receiver: receiver,
+	sub := stream.subscriptions[receiver]
+	if sub == nil {
+		sub = &Subscription[R]{
+			keys:     make([]*Key[R], 0, len(tags)),
+			receiver: receiver,
+		}
+		stream.subscriptions[receiver] = sub
+		sub.offset.Store(-1)
 	}
-	stream.subscriptions[receiver] = sub
-	sub.offset.Store(-1)
-	for i, tag := range tags {
+	for _, tag := range tags {
 		key := stream.tags[tag]
 		if key == nil {
 			key = &Key[R]{}
 			stream.tags[tag] = key
+		} else if !slices.Contains(sub.keys, key) {
+			sub.keys = append(sub.keys, key)
+			key.AddSubscription(sub)
 		}
-		sub.keys[i] = key
-		key.AddSubscription(sub)
 	}
+}
+
+// UnSub from tags; if tags is nil, unsubscribe from all tags
+func (stream *Stream[R, M]) UnSub(receiver R, tags ...string) {
+
 }
 
 func (stream *Stream[R, M]) Pub(msg M, tags ...string) {

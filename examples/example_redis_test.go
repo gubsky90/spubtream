@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gubsky90/spubtream"
+	spubtream "github.com/gubsky90/spubtream/v7"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -54,11 +54,13 @@ func Test_Redis(t *testing.T) {
 
 	// 1744728122852-0
 
-	stream := spubtream.New[*RedisMessage](ctx).Stream()
-	stream.Sub(spubtream.ReceiverFunc[*RedisMessage](func(_ context.Context, msg *RedisMessage) error {
+	stream := spubtream.NewStream[any, *RedisMessage]()
+
+	stream.Start(func(r any, msg *RedisMessage) {
 		fmt.Println(">>>", string(msg.Payload))
-		return nil
-	}), stream.Newest(), "one")
+	})
+
+	stream.Sub(1, "one")
 
 	// -----------------
 	// Read history
@@ -72,7 +74,7 @@ func Test_Redis(t *testing.T) {
 	}
 	for _, xmsg := range msgs {
 		msg, _ := RedisMessageFromXMessage(xmsg)
-		_ = stream.Pub(ctx, msg)
+		stream.Pub(msg, msg.Tags...)
 	}
 
 	// -----------------
@@ -81,7 +83,7 @@ func Test_Redis(t *testing.T) {
 
 	_ = consumeRedis(ctx, client, redisStreamName, "0", func(xmsg redis.XMessage) {
 		msg, _ := RedisMessageFromXMessage(xmsg)
-		_ = stream.Pub(ctx, msg)
+		stream.Pub(msg, msg.Tags...)
 	})
 
 	time.Sleep(time.Minute)
