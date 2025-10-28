@@ -9,7 +9,7 @@ type Stats struct {
 	Received      int64
 }
 
-func (stream *Stream[M, R]) Stats() Stats {
+func (stream *Stream[M, R, T]) Stats() Stats {
 	return Stats{
 		Messages:      atomic.LoadInt64(&stream.stats.Messages),
 		Subscriptions: atomic.LoadInt64(&stream.stats.Subscriptions),

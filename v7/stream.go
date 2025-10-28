@@ -7,9 +7,9 @@ import (
 	"time"
 )
 
-type Stream[R comparable, M any] struct {
+type Stream[R comparable, M any, T comparable] struct {
 	tmpKeys       []*Key[R]
-	tags          map[string]*Key[R]
+	tags          map[T]*Key[R]
 	messages      *Store[*Key[R], M]
 	in            *QP[R]
 	subscriptions map[R]*Subscription[R]
@@ -24,7 +24,7 @@ type Subscription[R comparable] struct {
 }
 
 // Sub to tags
-func (stream *Stream[R, M]) Sub(receiver R, tags ...string) {
+func (stream *Stream[R, M, T]) Sub(receiver R, tags ...T) {
 	sub := stream.subscriptions[receiver]
 	if sub == nil {
 		sub = &Subscription[R]{
@@ -39,7 +39,8 @@ func (stream *Stream[R, M]) Sub(receiver R, tags ...string) {
 		if key == nil {
 			key = &Key[R]{}
 			stream.tags[tag] = key
-		} else if !slices.Contains(sub.keys, key) {
+		}
+		if !slices.Contains(sub.keys, key) {
 			sub.keys = append(sub.keys, key)
 			key.AddSubscription(sub)
 		}
@@ -47,11 +48,11 @@ func (stream *Stream[R, M]) Sub(receiver R, tags ...string) {
 }
 
 // UnSub from tags; if tags is nil, unsubscribe from all tags
-func (stream *Stream[R, M]) UnSub(receiver R, tags ...string) {
+func (stream *Stream[R, M, T]) UnSub(receiver R, tags ...T) {
 
 }
 
-func (stream *Stream[R, M]) Pub(msg M, tags ...string) {
+func (stream *Stream[R, M, T]) Pub(msg M, tags ...T) {
 	atomic.AddInt64(&stream.stats.Published, 1)
 	defer func() {
 		stream.tmpKeys = stream.tmpKeys[:0]
@@ -88,7 +89,7 @@ func (stream *Stream[R, M]) Pub(msg M, tags ...string) {
 	}
 }
 
-func (stream *Stream[R, M]) Start(fn func(R, M)) {
+func (stream *Stream[R, M, T]) Start(fn func(R, M)) {
 	stream.in = &QP[R]{
 		Cond: sync.Cond{L: &Spinlock{}},
 		// Cond: sync.Cond{L: &sync.Mutex{}},
@@ -112,9 +113,9 @@ func (stream *Stream[R, M]) Start(fn func(R, M)) {
 	stream.in.Start(1024)
 }
 
-func NewStream[R comparable, M any]() *Stream[R, M] {
-	stream := &Stream[R, M]{
-		tags:          map[string]*Key[R]{},
+func NewStream[R comparable, M any, T comparable]() *Stream[R, M, T] {
+	stream := &Stream[R, M, T]{
+		tags:          map[T]*Key[R]{},
 		subscriptions: map[R]*Subscription[R]{},
 		messages:      NewStore[*Key[R], M](),
 	}
